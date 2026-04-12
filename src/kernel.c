@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include "../include/pmm.h"
+#include "../include/paging.h"
 #include "../include/multiboot.h"
 
 #define VGA_BUFFER 0xB8000
@@ -27,12 +28,14 @@ static void puts(const char* s) {
         if (*s == '\n') {
             cursor_x = 0;
             cursor_y++;
+            if (cursor_y >= 25) cursor_y = 0;
         } else {
             vga[cursor_y * 80 + cursor_x] = (uint16_t)(*s) | (uint16_t)(VGA_COLOR << 8);
             cursor_x++;
             if (cursor_x >= 80) {
                 cursor_x = 0;
                 cursor_y++;
+                if (cursor_y >= 25) cursor_y = 0;
             }
         }
         s++;
@@ -74,70 +77,82 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr) {
     
     if (magic != MBOOT_MAGIC) {
         puts("ERROR: Invalid multiboot magic!\n");
-        puts("Expected: 0x2BADB002, Got: ");
-        put_hex(magic);
-        puts("\nHalting.\n");
+        puts("Halting.\n");
         while (1) __asm__ volatile("hlt");
     }
     
-    puts("OpenCode OS v0.2\n");
-    puts("===============\n\n");
+    puts("OpenCode OS v0.3\n");
+    puts("================\n\n");
     
     struct mboot_info* mbi = (struct mboot_info*)mbi_addr;
     
-    /* Show boot info */
-    puts("[BOOT] Multiboot info at: ");
-    put_hex(mbi_addr);
-    puts("\n");
-    
-    if (mbi->flags & MBOOT_FLAG_MEM) {
-        puts("[MEM ] Lower memory: ");
-        put_dec(mbi->mem_lower);
-        puts(" KB\n");
-        puts("[MEM ] Upper memory: ");
-        put_dec(mbi->mem_upper);
-        puts(" KB\n");
-    }
-    
     /* Initialize physical memory manager */
-    puts("[INIT] Initializing PMM...\n");
+    puts("[INIT] Physical Memory Manager...\n");
     pmm_init(mbi_addr);
     
-    puts("[MEM ] Total memory: ");
+    puts("  Total: ");
     put_dec(pmm_get_total() / (1024 * 1024));
     puts(" MB\n");
-    
-    puts("[MEM ] Free memory: ");
+    puts("  Free:  ");
     put_dec(pmm_get_free() / (1024 * 1024));
-    puts(" MB\n");
+    puts(" MB\n\n");
     
-    /* Test allocation */
-    puts("\n[TEST] Allocating pages...\n");
+    /* Initialize paging */
+    puts("[INIT] Paging...\n");
     
-    void* page1 = pmm_alloc_page();
-    void* page2 = pmm_alloc_page();
-    void* page3 = pmm_alloc_page();
+    /* CR0 before paging */
+    uint32_t cr0_before;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0_before));
     
-    puts("  Page 1: ");
-    put_hex((uint32_t)page1);
-    puts("\n  Page 2: ");
-    put_hex((uint32_t)page2);
-    puts("\n  Page 3: ");
-    put_hex((uint32_t)page3);
+    paging_init();
+    
+    /* CR0 after paging */
+    uint32_t cr0_after;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0_after));
+    
+    puts("  CR0 before: ");
+    put_hex(cr0_before);
     puts("\n");
+    puts("  CR0 after:  ");
+    put_hex(cr0_after);
+    puts("\n");
+    puts("  Paging enabled: ");
+    puts((cr0_after & 0x80000000) ? "YES" : "NO");
+    puts("\n\n");
     
-    puts("\n[MEM ] Free after alloc: ");
-    put_dec(pmm_get_free() / (1024 * 1024));
-    puts(" MB\n");
+    /* Test virtual memory */
+    puts("[TEST] Virtual Memory...\n");
     
-    pmm_free_page(page1);
-    pmm_free_page(page2);
+    /* Allocate a page at a high virtual address */
+    uint32_t test_vaddr = 0xC0000000;  /* 3GB mark */
+    void* test_page = paging_alloc(test_vaddr, PTE_WRITABLE | PTE_PRESENT);
     
-    puts("[MEM ] Free after free: ");
-    put_dec(pmm_get_free() / (1024 * 1024));
-    puts(" MB\n");
+    if (test_page) {
+        puts("  Mapped vaddr: ");
+        put_hex(test_vaddr);
+        puts(" -> paddr: ");
+        put_hex(paging_get_physical(test_vaddr));
+        puts("\n");
+        
+        /* Write to virtual address */
+        volatile uint32_t* ptr = (volatile uint32_t*)test_vaddr;
+        *ptr = 0xDEADBEEF;
+        
+        puts("  Write test:   0xDEADBEEF\n");
+        puts("  Read back:    ");
+        put_hex(*ptr);
+        puts("\n");
+        
+        if (*ptr == 0xDEADBEEF) {
+            puts("  Status:       OK\n");
+        } else {
+            puts("  Status:       FAILED\n");
+        }
+    } else {
+        puts("  FAILED to allocate test page\n");
+    }
     
-    puts("\n[DONE] Memory management working!\n");
+    puts("\n[DONE] Virtual memory working!\n");
     puts("Halting.\n");
     
     while (1) {
