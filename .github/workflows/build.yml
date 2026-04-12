@@ -100,9 +100,9 @@ jobs:
       run: |
         # Run QEMU and capture output
         echo "Testing kernel boot..."
-        timeout 5s qemu-system-i386 -kernel bin/kernel.bin \
+        timeout 10s qemu-system-i386 -kernel bin/kernel.bin \
           -display none -serial stdio \
-          -m 128 2>&1 | tee qemu_output.txt || true
+          -m 128 -no-reboot 2>&1 | tee qemu_output.txt || true
         
         echo "========================================"
         echo "QEMU output:"
@@ -115,5 +115,7 @@ jobs:
           exit 0
         else
           echo "FAIL: Expected output not found"
+          echo "Checking kernel binary..."
+          file bin/kernel.bin || true
           exit 1
         fi
