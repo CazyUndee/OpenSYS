@@ -1,12 +1,9 @@
-/*
- * boot.asm - 64-bit Long Mode Bootstrap
- * 
- * This is the entry point. We start in 16-bit real mode,
- * switch to 32-bit protected mode, then to 64-bit long mode.
- */
+; boot64.asm - 64-bit Long Mode Bootstrap
+;
+; This is the entry point. We start in 16-bit real mode,
+; switch to 32-bit protected mode, then to 64-bit long mode.
 
 [BITS 16]
-[ORG 0x7C00]
 
 ; Multiboot header (GRUB loads us in 32-bit protected mode)
 ; But we'll also support direct boot for flexibility
