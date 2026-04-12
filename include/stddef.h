@@ -3,10 +3,8 @@
 
 #define NULL ((void*)0)
 
-#ifndef __SIZE_TYPE__
-typedef unsigned int size_t;
-#endif
-
-typedef signed int ptrdiff_t;
+/* size_t for 32-bit x86 */
+typedef unsigned long size_t;
+typedef long ptrdiff_t;
 
 #endif

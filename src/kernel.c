@@ -26,9 +26,9 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr) {
     terminal_writestring("\n");
     terminal_writestring("  ____                _                _____ ____   _____ \n");
     terminal_writestring(" / __ \\___  ___ ___  | | ___  _ __ ___| ___/ ___| / ____|\n");
-    terminal_writestring("| |  | / _ \/ __/ _ \\| |/ _ \\| '__/ _ \\___ \\___ \\| |     \n");
-    terminal_writestring("| |__| |  __/ (_| (_) | | (_) | | |  __/___) |__) | |___  \n");
-    terminal_writestring(" \\____/ \\___|\___\___/|_|\___/|_|  \\___|____/____/ \\_____|\n");
+    terminal_writestring("| |  | / _ \\/ __/ _ \\| |/ _ \\| '__/ _ \\___ \\___ \\| |     \n");
+    terminal_writestring("| |__| | __/ (_| (_) | | (_) | | | __/___) |__) | |___  \n");
+    terminal_writestring(" \\____/ \\___|\\___\\___/|_|\\___/|_|  \\___|____/____/ \\_____|\n");
     terminal_writestring("\n");
     terminal_writestring("OpenCode OS v0.1 - x86 32-bit Protected Mode\n");
     terminal_writestring("Type 'help' for available commands.\n\n");
