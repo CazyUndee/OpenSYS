@@ -17,31 +17,28 @@ static size_t    pmm_total_pages = 0;
 static size_t    pmm_free_pages = 0;
 
 /* Kernel end symbol from linker */
-extern uint32_t kernel_end;
+extern uint8_t kernel_end;
 
 /* Helper: set/clear/test bit in bitmap */
 static inline void bitmap_set(size_t index) {
-    pmm_bitmap[index / 32] |= (1 << (index % 32));
+    pmm_bitmap[index / 32] |= (1u << (index % 32));
 }
 
 static inline void bitmap_clear(size_t index) {
-    pmm_bitmap[index / 32] &= ~(1 << (index % 32));
+    pmm_bitmap[index / 32] &= ~(1u << (index % 32));
 }
 
 static inline int bitmap_test(size_t index) {
-    return pmm_bitmap[index / 32] & (1 << (index % 32));
+    return (pmm_bitmap[index / 32] & (1u << (index % 32))) != 0;
+}
+
+static inline int pmm_page_is_page_aligned(uint32_t addr) {
+    return (addr & (PAGE_SIZE - 1)) == 0;
 }
 
 /* Helper: print hex number */
 static void print_hex(uint32_t n) {
-    const char hex[] = "0123456789ABCDEF";
-    char buf[9];
-    buf[8] = 0;
-    for (int i = 7; i >= 0; i--) {
-        buf[i] = hex[n & 0xF];
-        n >>= 4;
-    }
-    /* This is called from kernel, we'll use a simple output */
+    (void)n;
 }
 
 /*
@@ -118,15 +115,15 @@ void pmm_init(uint32_t mbi_addr) {
                     if (page < 256) continue;  /* First 1MB */
                     
                     /* Don't free pages used by bitmap */
-                    uint32_t page_addr = page * PAGE_SIZE;
-                    uint32_t bitmap_end = bitmap_start + pmm_bitmap_size * 4;
+                    uint32_t page_addr = (uint32_t)page * PAGE_SIZE;
+                    uint32_t bitmap_end = bitmap_start + pmm_bitmap_size * sizeof(uint32_t);
                     if (page_addr >= bitmap_start && page_addr < bitmap_end + PAGE_SIZE) continue;
                     
                     /* Don't free kernel pages */
                     if (page_addr >= 0x100000 && page_addr < (uint32_t)&kernel_end) continue;
                     
-                    if (bitmap_test(page)) {
-                        bitmap_clear(page);
+                    if (bitmap_test((size_t)page)) {
+                        bitmap_clear((size_t)page);
                         pmm_free_pages++;
                     }
                 }
@@ -145,7 +142,7 @@ void* pmm_alloc_page(void) {
         if (pmm_bitmap[i] != 0xFFFFFFFF) {
             /* Find first zero bit */
             for (size_t j = 0; j < 32; j++) {
-                if (!(pmm_bitmap[i] & (1 << j))) {
+                if (!(pmm_bitmap[i] & (1u << j))) {
                     size_t page_index = i * 32 + j;
                     if (page_index >= pmm_total_pages) continue;
                     
@@ -163,10 +160,20 @@ void* pmm_alloc_page(void) {
 
 /* Free a physical page */
 void pmm_free_page(void* addr) {
-    uint32_t page = (uint32_t)addr / PAGE_SIZE;
+    uint32_t raw_addr = (uint32_t)addr;
+    size_t page;
     
+    if (addr == 0) return;
+    if (!pmm_page_is_page_aligned(raw_addr)) return;
+    if (raw_addr >= (uint32_t)(pmm_total_pages * PAGE_SIZE)) return;
+    
+    page = raw_addr / PAGE_SIZE;
     if (page >= pmm_total_pages) return;
     if (!bitmap_test(page)) return;  /* Already free */
+    
+    /* Reject obvious attempts to free permanently reserved pages. */
+    if (page < 256) return;
+    if (raw_addr >= 0x100000 && raw_addr < (uint32_t)&kernel_end) return;
     
     bitmap_clear(page);
     pmm_free_pages++;
@@ -180,3 +187,4 @@ size_t pmm_get_total(void) {
 size_t pmm_get_free(void) {
     return pmm_free_pages * PAGE_SIZE;
 }
+

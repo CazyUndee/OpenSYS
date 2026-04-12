@@ -5,15 +5,19 @@
 
 /*
  * CPU state saved on interrupt stack
+ * Layout matches boot/interrupts.asm common stubs.
  */
 struct cpu_state {
-    uint32_t ds;                    // Data segment
+    uint32_t gs;
+    uint32_t fs;
+    uint32_t es;
+    uint32_t ds;
     uint32_t edi, esi, ebp, esp;    // Pushed by pusha
     uint32_t ebx, edx, ecx, eax;    // Pushed by pusha
     uint32_t int_no, err_code;      // Interrupt number and error code
     uint32_t eip, cs, eflags;       // Pushed by CPU
     uint32_t useresp, ss;           // Only if from user mode
-};
+} __attribute__((packed));
 
 // PIC I/O
 void pic_remap(void);

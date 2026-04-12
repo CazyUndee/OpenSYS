@@ -73,14 +73,9 @@ $(TARGET): $(BOOT_OBJ) $(ISR_OBJ) $(OBJECTS) | $(BINDIR)
 iso: $(TARGET)
 	@mkdir -p iso/boot/grub
 	@cp $(TARGET) iso/boot/kernel
-	@echo 'set timeout=0' > iso/boot/grub/grub.cfg
-	@echo 'set default=0' >> iso/boot/grub/grub.cfg
-	@echo '' >> iso/boot/grub/grub.cfg
-	@echo 'menuentry "OpenCode OS" {' >> iso/boot/grub/grub.cfg
-	@echo '    multiboot /boot/kernel' >> iso/boot/grub/grub.cfg
-	@echo '}' >> iso/boot/grub/grub.cfg
-	@grub-mkrescue -o $(ISO) iso 2>/dev/null || echo "Note: grub-mkrescue not available, ISO not created"
-	@echo "ISO creation complete (if grub-mkrescue was available)"
+	@cp grub.cfg iso/boot/grub/grub.cfg
+	@grub-mkrescue -o $(ISO) iso
+	@echo "ISO creation complete: $(ISO)"
 
 # Run in QEMU (direct kernel load)
 run: $(TARGET)

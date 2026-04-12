@@ -12,6 +12,7 @@
 
 // Simple keyboard buffer
 #define KEYBOARD_BUFFER_SIZE 256
+#define KEYBOARD_INIT_WAIT_LIMIT 100000
 static char keyboard_buffer[KEYBOARD_BUFFER_SIZE];
 static uint32_t keyboard_buffer_head = 0;
 static uint32_t keyboard_buffer_tail = 0;
@@ -151,15 +152,22 @@ void keyboard_handler(struct cpu_state* regs) {
  * Initialize keyboard
  */
 void keyboard_init(void) {
+    uint32_t wait;
+
     // Clear buffer
     keyboard_buffer_head = 0;
     keyboard_buffer_tail = 0;
     shift_state = 0;
     caps_lock = 0;
 
-    // Wait for keyboard to be ready
-    while (inb(KEYBOARD_STATUS_PORT) & KEYBOARD_STATUS_INPUT) {
-        inb(KEYBOARD_DATA_PORT);
+    // Wait for keyboard controller to become ready, but do not hang forever.
+    for (wait = 0; wait < KEYBOARD_INIT_WAIT_LIMIT; wait++) {
+        if ((inb(KEYBOARD_STATUS_PORT) & KEYBOARD_STATUS_INPUT) == 0) {
+            break;
+        }
+        if (inb(KEYBOARD_STATUS_PORT) & KEYBOARD_STATUS_OUTPUT) {
+            (void)inb(KEYBOARD_DATA_PORT);
+        }
     }
 
     // Register handler for IRQ1 (keyboard)

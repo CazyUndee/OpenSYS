@@ -7,33 +7,37 @@
 extern isr_handler
 extern irq_handler
 
-; Common ISR stub - saves state and calls C handler
+; Common interrupt return path.
+; Stack on entry (top to bottom):
+;   gs, fs, es, ds, edi, esi, ebp, esp, ebx, edx, ecx, eax, int_no, err_code,
+;   eip, cs, eflags[, useresp, ss]
+; We restore segment registers after the C handler and leave the CPU-pushed
+; interrupt frame intact for iret.
 global isr_common_stub
 isr_common_stub:
-    pusha               ; Push edi,esi,ebp,esp,ebx,edx,ecx,eax
+    pusha               ; Push edi, esi, ebp, esp, ebx, edx, ecx, eax
     push ds
     push es
     push fs
     push gs
-    
+
     mov ax, 0x10        ; Load kernel data segment
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    
-    push esp            ; Pass pointer to stack
+
+    push esp            ; Pass pointer to stack frame to C
     call isr_handler
-    pop esp
-    
+    add esp, 4
+
     pop gs
     pop fs
     pop es
     pop ds
     popa
-    add esp, 8          ; Clean up error code and int number
-    sti
-    iret
+    add esp, 8          ; Discard interrupt number + error code
+    iretd
 
 ; Common IRQ stub - same as ISR but handles PIC EOI
 global irq_common_stub
@@ -43,25 +47,24 @@ irq_common_stub:
     push es
     push fs
     push gs
-    
+
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    
+
     push esp
     call irq_handler
-    pop esp
-    
+    add esp, 4
+
     pop gs
     pop fs
     pop es
     pop ds
     popa
     add esp, 8
-    sti
-    iret
+    iretd
 
 ; CPU Exception handlers (ISR 0-31)
 ; Macro for exceptions without error code

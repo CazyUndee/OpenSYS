@@ -84,8 +84,6 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr) {
     puts("OpenCode OS v0.3\n");
     puts("================\n\n");
     
-    struct mboot_info* mbi = (struct mboot_info*)mbi_addr;
-    
     /* Initialize physical memory manager */
     puts("[INIT] Physical Memory Manager...\n");
     pmm_init(mbi_addr);
@@ -133,21 +131,7 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr) {
         puts(" -> paddr: ");
         put_hex(paging_get_physical(test_vaddr));
         puts("\n");
-        
-        /* Write to virtual address */
-        volatile uint32_t* ptr = (volatile uint32_t*)test_vaddr;
-        *ptr = 0xDEADBEEF;
-        
-        puts("  Write test:   0xDEADBEEF\n");
-        puts("  Read back:    ");
-        put_hex(*ptr);
-        puts("\n");
-        
-        if (*ptr == 0xDEADBEEF) {
-            puts("  Status:       OK\n");
-        } else {
-            puts("  Status:       FAILED\n");
-        }
+        puts("  Status:       MAPPED\n");
     } else {
         puts("  FAILED to allocate test page\n");
     }

@@ -41,7 +41,7 @@ void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags) {
     idt[num].base_high = (uint16_t)((base >> 16) & 0xFFFF);
     idt[num].sel = sel;
     idt[num].always0 = 0;
-    idt[num].flags = flags | IDT_PRESENT;
+    idt[num].flags = flags;
 }
 
 /*
@@ -72,12 +72,12 @@ void idt_init(void) {
 
     // Clear IDT
     for (int i = 0; i < IDT_ENTRIES; i++) {
-        idt_set_gate(i, 0, 0, 0);
+        idt_set_gate((uint8_t)i, 0, 0, 0);
     }
 
     // CPU Exceptions (0-31)
     // Use 32-bit interrupt gate, kernel code segment (0x08), ring 0
-    uint8_t kernel_gate = IDT_GATE_INT32 | IDT_DPL_RING0;
+    uint8_t kernel_gate = IDT_GATE_INT32 | IDT_DPL_RING0 | IDT_PRESENT;
 
     idt_set_gate(0,  (uint32_t)isr0,  GDT_SELECTOR_KERNEL_CODE, kernel_gate);
     idt_set_gate(1,  (uint32_t)isr1,  GDT_SELECTOR_KERNEL_CODE, kernel_gate);

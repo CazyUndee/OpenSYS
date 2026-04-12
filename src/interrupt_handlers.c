@@ -54,8 +54,8 @@ static const char* exception_names[] = {
 };
 
 // Handler tables
-static void* isr_handlers[32] = {0};
-static void* irq_handlers[16] = {0};
+static void (*isr_handlers[32])(struct cpu_state*) = {0};
+static void (*irq_handlers[16])(struct cpu_state*) = {0};
 
 /*
  * Send End Of Interrupt to PIC
@@ -160,7 +160,7 @@ void isr_handler(struct cpu_state* regs) {
         // Would print hex number
         terminal_writestring(")\n");
 
-        if (regs->err_code != 0) {
+        if (regs->err_code != 0 || regs->int_no == EXCEPTION_PAGE_FAULT) {
             terminal_writestring("Error code: ");
             // Would print hex
             terminal_writestring("\n");
@@ -196,7 +196,7 @@ void irq_handler(struct cpu_state* regs) {
  */
 void irq_register_handler(uint8_t irq, void (*handler)(struct cpu_state*)) {
     if (irq < 16) {
-        irq_handlers[irq] = (void*)handler;
+        irq_handlers[irq] = handler;
     }
 }
 
@@ -205,6 +205,6 @@ void irq_register_handler(uint8_t irq, void (*handler)(struct cpu_state*)) {
  */
 void isr_register_handler(uint8_t num, void (*handler)(struct cpu_state*)) {
     if (num < 32) {
-        isr_handlers[num] = (void*)handler;
+        isr_handlers[num] = handler;
     }
 }
