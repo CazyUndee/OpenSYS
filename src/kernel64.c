@@ -104,8 +104,9 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     kfree(p2);
     puts("  kfree(1024) done\n\n");
     
-    puts("[DONE] 64-bit kernel ready!\n");
-    puts("Filesystem: OpenFS (NTFS-style)\n");
+    puts("[DONE] 64-bit memory system ready!\n");
+    puts("\nStarting shell...\n\n");
     
-    while (1) { __asm__ volatile("hlt"); }
+    extern void shell_run(void);
+    shell_run();
 }
