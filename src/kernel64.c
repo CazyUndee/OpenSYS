@@ -1,5 +1,5 @@
 /*
- * kernel.c - OpenSYS OS main kernel (64-bit)
+ * kernel64.c - OpenSYS OS 64-bit Main Kernel
  */
 
 #include <stdint.h>
@@ -7,7 +7,8 @@
 #define VGA_BUFFER 0xB8000
 #define VGA_COLOR 0x07
 
-static volatile uint16_t* vga = (volatile uint16_t*)VGA_BUFFER;
+static volatile uint16_t* vga = (volatile uint16_t*)(VGA_BUFFER);
+
 static int cursor_x = 0;
 static int cursor_y = 0;
 
@@ -28,10 +29,7 @@ static void puts(const char* s) {
         } else {
             vga[cursor_y * 80 + cursor_x] = (uint16_t)(*s) | (uint16_t)(VGA_COLOR << 8);
             cursor_x++;
-            if (cursor_x >= 80) {
-                cursor_x = 0;
-                cursor_y++;
-            }
+            if (cursor_x >= 80) { cursor_x = 0; cursor_y++; }
         }
         s++;
     }
@@ -40,96 +38,83 @@ static void puts(const char* s) {
 static void put_hex(uint64_t n) {
     const char hex[] = "0123456789ABCDEF";
     char buf[19];
-    buf[0] = '0';
-    buf[1] = 'x';
-    buf[18] = 0;
-    for (int i = 17; i >= 2; i--) {
-        buf[i] = hex[n & 0xF];
-        n >>= 4;
-    }
+    buf[0] = '0'; buf[1] = 'x'; buf[18] = 0;
+    for (int i = 17; i >= 2; i--) { buf[i] = hex[n & 0xF]; n >>= 4; }
     puts(buf);
 }
 
 static void put_dec(uint64_t n) {
-    char buf[24];
-    int i = 23;
-    buf[i] = 0;
-    
-    if (n == 0) {
-        puts("0");
-        return;
-    }
-    
-    while (n > 0) {
-        buf[--i] = '0' + (n % 10);
-        n /= 10;
-    }
+    char buf[24]; int i = 23; buf[i] = 0;
+    if (n == 0) { puts("0"); return; }
+    while (n > 0) { buf[--i] = '0' + (n % 10); n /= 10; }
     puts(&buf[i]);
 }
 
+/* External functions from assembly */
+extern uint64_t pmm_get_total(void);
+extern uint64_t pmm_get_free(void);
+extern void pmm_init(uint64_t mbi);
+extern void paging_init(void);
+extern void kheap_init(uint64_t start, uint64_t size);
+extern void* kmalloc(uint64_t size);
+extern void kfree(void* ptr);
+extern uint64_t kheap_get_used(void);
+extern uint64_t kheap_get_free(void);
+
 void kernel_main(uint64_t magic, uint64_t mbi) {
-    (void)mbi;
-    
     clear();
     
     puts("OpenSYS OS v1.0 (64-bit)\n");
     puts("========================\n\n");
     
-    /* Check multiboot */
     if (magic == 0x36D76289 || magic == 0x2BADB002) {
-        puts("[BOOT] Multiboot: OK\n");
+        puts("[BOOT] Multiboot: OK\n\n");
     } else {
-        puts("[BOOT] Multiboot: UNKNOWN\n");
-        puts("       Magic: ");
+        puts("[BOOT] Multiboot: ");
         put_hex(magic);
-        puts("\n");
+        puts("\n\n");
     }
     
-    /* CPU detection */
-    uint32_t eax, ebx, ecx, edx;
-    __asm__ volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(0));
+    /* Initialize PMM */
+    puts("[INIT] Physical Memory...\n");
+    pmm_init(mbi);
+    puts("  Total: ");
+    put_dec(pmm_get_total() / (1024 * 1024));
+    puts(" MB\n  Free:  ");
+    put_dec(pmm_get_free() / (1024 * 1024));
+    puts(" MB\n\n");
     
-    puts("\n[CPU] Vendor: ");
-    char vendor[13];
-    ((uint32_t*)vendor)[0] = ebx;
-    ((uint32_t*)vendor)[1] = edx;
-    ((uint32_t*)vendor)[2] = ecx;
-    vendor[12] = 0;
-    puts(vendor);
-    puts("\n");
+    /* Initialize paging */
+    puts("[INIT] 64-bit Paging...\n");
+    paging_init();
+    puts("  4-level paging enabled\n\n");
     
-    /* Check for long mode */
-    __asm__ volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(0x80000001));
-    if (edx & (1 << 29)) {
-        puts("[CPU] Long Mode: SUPPORTED\n");
-    } else {
-        puts("[CPU] Long Mode: NOT SUPPORTED!\n");
-    }
+    /* Initialize heap */
+    puts("[INIT] Kernel Heap...\n");
+    kheap_init(0xFFFF800000000000ULL, 64 * 1024 * 1024);  /* 64MB at top of canonical space */
+    puts("  Heap: 64MB at 0xFFFF800000000000\n\n");
     
-    puts("\n[MEM] Kernel loaded at: ");
-    put_hex(0x200000);
-    puts("\n");
+    /* Test allocations */
+    puts("[TEST] Memory Allocation...\n");
     
-    /* Test 64-bit arithmetic */
-    uint64_t a = 0xFFFFFFFF;
-    uint64_t b = 1;
-    uint64_t c = a + b;
+    void* p1 = kmalloc(128);
+    void* p2 = kmalloc(1024);
+    void* p3 = kmalloc(4096);
     
-    puts("\n[TEST] 64-bit arithmetic:\n");
-    puts("       0xFFFFFFFF + 1 = ");
-    put_hex(c);
-    puts("\n");
+    puts("  kmalloc(128)   = "); put_hex((uint64_t)p1); puts("\n");
+    puts("  kmalloc(1024)  = "); put_hex((uint64_t)p2); puts("\n");
+    puts("  kmalloc(4096)  = "); put_hex((uint64_t)p3); puts("\n\n");
     
-    if (c == 0x100000000ULL) {
-        puts("       Result: CORRECT\n\n");
-    } else {
-        puts("       Result: WRONG\n\n");
-    }
+    puts("  Heap used: "); put_dec(kheap_get_used()); puts(" bytes\n");
+    puts("  Heap free: "); put_dec(kheap_get_free()); puts(" bytes\n\n");
     
-    puts("[DONE] 64-bit kernel running!\n");
-    puts("Ready for 64-bit memory management.\n");
+    kfree(p2);
+    void* p4 = kmalloc(512);
+    puts("  After free/realloc:\n");
+    puts("    kmalloc(512) = "); put_hex((uint64_t)p4); puts("\n\n");
     
-    while (1) {
-        __asm__ volatile("hlt");
-    }
+    puts("[DONE] 64-bit memory system ready!\n");
+    puts("Next: Custom filesystem.\n");
+    
+    while (1) { __asm__ volatile("hlt"); }
 }
