@@ -23,8 +23,16 @@
 #define GPT_ENTRIES_PER_SECTOR 4
 #define GPT_MAX_PARTITIONS     128
 
-/* GPT Header signature "EFI PART" */
-#define GPT_SIGNATURE          0x5452415020494645ULL
+/* GPT Header signature "EFI PART" as raw bytes (little-endian) */
+/* In memory: 45 46 49 20 50 41 52 54 */
+#define GPT_SIGNATURE_BYTES {0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54}
+#define GPT_SIGNATURE_STR "EFI PART"
+
+/* Helper to compare signature */
+static inline int gpt_signature_valid(const uint8_t* sig) {
+    return sig[0] == 0x45 && sig[1] == 0x46 && sig[2] == 0x49 && sig[3] == 0x20 &&
+           sig[4] == 0x50 && sig[5] == 0x41 && sig[6] == 0x52 && sig[7] == 0x54;
+}
 
 /* Well-known partition type GUIDs */
 static const uint8_t GPT_TYPE_UNUSED[16] = {0};
@@ -51,12 +59,12 @@ static const uint8_t GPT_TYPE_FAT32[16] = {
 
 /* GPT Partition Entry */
 typedef struct {
-    uint8_t  type_guid[16];         /* Partition type GUID */
-    uint8_t  partition_guid[16];    /* Unique partition GUID */
-    uint64_t start_lba;             /* Starting LBA */
-    uint64_t end_lba;               /* Ending LBA (inclusive) */
-    uint64_t attributes;            /* Partition attributes */
-    char     name[72];              /* Partition name (UTF-16LE) */
+    uint8_t type_guid[16];         /* Partition type GUID */
+    uint8_t partition_guid[16];    /* Unique partition GUID */
+    uint64_t start_lba;            /* Starting LBA */
+    uint64_t end_lba;              /* Ending LBA (inclusive) */
+    uint64_t attributes;           /* Partition attributes */
+    uint16_t name[36];             /* Partition name (UTF-16LE, 36 chars max) */
 } __attribute__((packed)) gpt_entry_t;
 
 /* GPT Header */
