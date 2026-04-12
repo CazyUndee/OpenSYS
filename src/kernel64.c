@@ -75,7 +75,7 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
         puts("\n\n");
     }
     
-    /* Initialize PMM */
+    /* Initialize memory */
     puts("[INIT] Physical Memory...\n");
     pmm_init(mbi);
     puts("  Total: ");
@@ -84,14 +84,12 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     put_dec(pmm_get_free() / (1024 * 1024));
     puts(" MB\n\n");
     
-    /* Initialize paging */
     puts("[INIT] 64-bit Paging...\n");
     paging_init();
     puts("  4-level paging enabled\n\n");
     
-    /* Initialize heap */
     puts("[INIT] Kernel Heap...\n");
-    kheap_init(0xFFFF800000000000ULL, 64 * 1024 * 1024);  /* 64MB at top of canonical space */
+    kheap_init(0xFFFF800000000000ULL, 64 * 1024 * 1024);
     puts("  Heap: 64MB at 0xFFFF800000000000\n\n");
     
     /* Test allocations */
@@ -99,22 +97,15 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     
     void* p1 = kmalloc(128);
     void* p2 = kmalloc(1024);
-    void* p3 = kmalloc(4096);
     
-    puts("  kmalloc(128)   = "); put_hex((uint64_t)p1); puts("\n");
-    puts("  kmalloc(1024)  = "); put_hex((uint64_t)p2); puts("\n");
-    puts("  kmalloc(4096)  = "); put_hex((uint64_t)p3); puts("\n\n");
-    
-    puts("  Heap used: "); put_dec(kheap_get_used()); puts(" bytes\n");
-    puts("  Heap free: "); put_dec(kheap_get_free()); puts(" bytes\n\n");
+    puts("  kmalloc(128)  = "); put_hex((uint64_t)p1); puts("\n");
+    puts("  kmalloc(1024) = "); put_hex((uint64_t)p2); puts("\n");
     
     kfree(p2);
-    void* p4 = kmalloc(512);
-    puts("  After free/realloc:\n");
-    puts("    kmalloc(512) = "); put_hex((uint64_t)p4); puts("\n\n");
+    puts("  kfree(1024) done\n\n");
     
-    puts("[DONE] 64-bit memory system ready!\n");
-    puts("Next: Custom filesystem.\n");
+    puts("[DONE] 64-bit kernel ready!\n");
+    puts("Filesystem: OpenFS (NTFS-style)\n");
     
     while (1) { __asm__ volatile("hlt"); }
 }
