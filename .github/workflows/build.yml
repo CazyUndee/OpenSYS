@@ -25,18 +25,24 @@ jobs:
         mkdir -p obj bin
         
         # Compile boot
+        echo "Compiling boot_c.c"
         gcc -m32 -c boot/boot_c.c -o obj/boot.o \
           -ffreestanding -O2 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude
+        
+        # Assemble interrupt stubs
+        echo "Assembling interrupts.asm"
+        nasm -f elf32 boot/interrupts.asm -o obj/interrupts.o
         
         # Compile all source files
         for src in src/*.c; do
           name=$(basename "$src" .c)
-          echo "Compiling $src -> obj/${name}.o"
+          echo "Compiling $src"
           gcc -m32 -c "$src" -o "obj/${name}.o" \
             -ffreestanding -O2 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude
         done
         
         # Link
+        echo "Linking kernel.bin"
         ld -m elf_i386 -T linker/linker.ld -nostdlib -o bin/kernel.bin obj/*.o
         
         echo "========================================"

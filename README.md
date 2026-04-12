@@ -66,6 +66,7 @@ brew install i686-elf-gcc nasm qemu
 
 ```bash
 # In MSYS2 MinGW 32-bit terminal
+make check    # Verify tools
 make          # Build kernel
 make run      # Run in QEMU (direct load)
 make iso      # Build bootable ISO
@@ -110,7 +111,7 @@ This project includes GitHub Actions workflows:
   - Uploads artifacts
 
 - **Status badges:**
-  ![Build](https://github.com/YOUR_USERNAME/os/workflows/Build%20OpenCode%20OS/badge.svg)
+  ![Build](https://github.com/CazyUndee/OpenSYS/workflows/Build%20OpenCode%20OS/badge.svg)
 
 ## What It Does
 
