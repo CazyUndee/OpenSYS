@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc nasm xorriso grub-pc-bin mtools
+
+    - name: Build 64-bit kernel
+      run: |
+        mkdir -p obj bin
+
+        nasm -f elf64 boot/boot64.asm -o obj/boot.o
+        nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
+
+        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr_stubs; do
+          gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
+            -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
+            -Iinclude -mcmodel=large
+        done
+
+        ld -m elf_x86_64 -T linker/linker64.ld -nostdlib -o bin/kernel64.bin obj/*.o
+
+    - name: Create bootable ISO
+      run: |
+        mkdir -p iso/boot/grub
+        cp bin/kernel64.bin iso/boot/kernel
+
+        cat > iso/boot/grub/grub.cfg << 'EOF'
+        set timeout=5
+        set default=0
+
+        menuentry "OpenSYS OS" {
+          multiboot /boot/kernel
+          boot
+        }
+        EOF
+
+        grub-mkrescue -o bin/opensys-${{ github.ref_name }}.iso iso
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/opensys-${{ github.ref_name }}.iso
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
