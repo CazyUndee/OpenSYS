@@ -95,9 +95,8 @@ void gdt_init(void) {
 
     // Set up GDT pointer
     gdt_ptr.limit = sizeof(gdt) - 1;
-    // Cast through uintptr_t for safety on modern toolchains
-    gdt_ptr.base = (uint32_t)(uintptr_t)&gdt;
+    gdt_ptr.base = (uint32_t)&gdt;
 
     // Load GDT and reload segment registers
-    gdt_flush((uint32_t)(uintptr_t)&gdt_ptr);
+    gdt_flush((uint32_t)&gdt_ptr);
 }

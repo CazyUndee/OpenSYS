@@ -52,7 +52,7 @@ void idt_load(void) {
     __asm__ volatile (
         "lidt (%0)"
         :
-        : "r" ((uint32_t)(uintptr_t)&idt_ptr)
+        : "r" ((uint32_t)&idt_ptr)
         : "memory"
     );
 }
