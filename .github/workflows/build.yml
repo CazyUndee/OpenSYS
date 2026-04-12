@@ -133,8 +133,14 @@ jobs:
         file bin/kernel.bin
         readelf -h bin/kernel.bin | head -15 || true
         
-        if grep -q "OpenCode" qemu_output.txt; then
-          echo "SUCCESS: Kernel output detected!"
+        # Success if we see memory info
+        if grep -q "Free memory" qemu_output.txt; then
+          echo "SUCCESS: Kernel booted and memory management working!"
+          exit 0
+        fi
+        
+        if grep -q "OpenCode OS" qemu_output.txt; then
+          echo "SUCCESS: Kernel booted!"
           exit 0
         fi
         
