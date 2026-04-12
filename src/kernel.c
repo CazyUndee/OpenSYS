@@ -1,10 +1,11 @@
 /*
- * kernel.c - OpenCode OS main kernel
+ * kernel.c - OpenSYS OS main kernel
  */
 
 #include <stdint.h>
 #include "../include/pmm.h"
 #include "../include/paging.h"
+#include "../include/kheap.h"
 #include "../include/multiboot.h"
 
 #define VGA_BUFFER 0xB8000
@@ -81,63 +82,68 @@ void kernel_main(uint32_t magic, uint32_t mbi_addr) {
         while (1) __asm__ volatile("hlt");
     }
     
-    puts("OpenCode OS v0.3\n");
+    puts("OpenSYS OS v0.4\n");
     puts("================\n\n");
     
     /* Initialize physical memory manager */
     puts("[INIT] Physical Memory Manager...\n");
     pmm_init(mbi_addr);
-    
     puts("  Total: ");
     put_dec(pmm_get_total() / (1024 * 1024));
-    puts(" MB\n");
-    puts("  Free:  ");
+    puts(" MB\n  Free:  ");
     put_dec(pmm_get_free() / (1024 * 1024));
     puts(" MB\n\n");
     
     /* Initialize paging */
     puts("[INIT] Paging...\n");
-    
-    /* CR0 before paging */
-    uint32_t cr0_before;
-    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0_before));
-    
     paging_init();
+    uint32_t cr0;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    puts("  Paging: ");
+    puts((cr0 & 0x80000000) ? "ENABLED\n\n" : "FAILED\n\n");
     
-    /* CR0 after paging */
-    uint32_t cr0_after;
-    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0_after));
+    /* Initialize heap */
+    puts("[INIT] Kernel Heap...\n");
+    kheap_init(0x40000000, 16 * 1024 * 1024);
+    puts("  Heap at 0x40000000 (16MB)\n\n");
     
-    puts("  CR0 before: ");
-    put_hex(cr0_before);
+    /* Test heap allocator */
+    puts("[TEST] Heap Allocator...\n");
+    
+    void* ptr1 = kmalloc(128);
+    void* ptr2 = kmalloc(256);
+    void* ptr3 = kmalloc(512);
+    
+    puts("  kmalloc(128) = ");
+    put_hex((uint32_t)ptr1);
+    puts("\n  kmalloc(256) = ");
+    put_hex((uint32_t)ptr2);
+    puts("\n  kmalloc(512) = ");
+    put_hex((uint32_t)ptr3);
     puts("\n");
-    puts("  CR0 after:  ");
-    put_hex(cr0_after);
-    puts("\n");
-    puts("  Paging enabled: ");
-    puts((cr0_after & 0x80000000) ? "YES" : "NO");
-    puts("\n\n");
     
-    /* Test virtual memory */
-    puts("[TEST] Virtual Memory...\n");
-    
-    /* Allocate a page at a high virtual address */
-    uint32_t test_vaddr = 0xC0000000;  /* 3GB mark */
-    void* test_page = paging_alloc(test_vaddr, PTE_WRITABLE | PTE_PRESENT);
-    
-    if (test_page) {
-        puts("  Mapped vaddr: ");
-        put_hex(test_vaddr);
-        puts(" -> paddr: ");
-        put_hex(paging_get_physical(test_vaddr));
+    /* Write test */
+    if (ptr1) {
+        char* str = (char*)ptr1;
+        str[0] = 'H'; str[1] = 'E'; str[2] = 'L';
+        str[3] = 'L'; str[4] = 'O'; str[5] = 0;
+        puts("  Write 'HELLO' -> ");
+        puts(ptr1);
         puts("\n");
-        puts("  Status:       MAPPED\n");
-    } else {
-        puts("  FAILED to allocate test page\n");
     }
     
-    puts("\n[DONE] Virtual memory working!\n");
-    puts("Halting.\n");
+    puts("\n  Used: ");
+    put_dec(kheap_get_used());
+    puts(" bytes\n");
+    
+    kfree(ptr2);
+    void* ptr4 = kmalloc(64);
+    puts("  kfree(256), kmalloc(64) = ");
+    put_hex((uint32_t)ptr4);
+    puts("\n\n");
+    
+    puts("[DONE] Memory system complete!\n");
+    puts("Ready for cool stuff.\n");
     
     while (1) {
         __asm__ volatile("hlt");
