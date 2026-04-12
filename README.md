@@ -1,205 +1,138 @@
 # OpenSYS OS
 
-A minimal x86 32-bit operating system kernel built from scratch.
+A 64-bit operating system kernel built from scratch with modern features.
 
-## What We Built
+## Features
 
-This is a complete foundation for a custom OS:
-
-- **Boot loader**: Multiboot 1 compliant, works with GRUB
-- **Kernel**: C-based with VGA text mode driver
-- **Linker script**: ELF32 format, loads at 0x100000 (1MB)
-- **Build system**: Makefile + batch files
+- **64-bit kernel**: Full long mode support (16-bit -> 32-bit -> 64-bit transition)
+- **Memory management**: PMM with bitmap allocator, 4-level paging, kernel heap
+- **OpenFS filesystem**: NTFS-style with Master File Table (MFT) and attributes
+- **GPT support**: GUID Partition Table driver with ATA disk access
+- **USB keyboard**: HID keyboard driver framework
+- **Natural language shell**: Human-readable commands (not cryptic Unix names)
 
 ## Project Structure
 
 ```
 /
 ├── boot/
-│   └── boot_c.c          # C-only boot stub (no nasm required)
-├── boot/
-│   └── boot.asm          # Alternative NASM version
+│   ├── boot64.asm      # 64-bit long mode bootstrap
+│   ├── boot.asm        # 32-bit alternative
+│   ├── boot_c.c        # C boot stub
+│   └── interrupts.asm  # ISR/IRQ stubs
 ├── src/
-│   └── kernel.c          # Main kernel with VGA driver
-├── linker/
-│   └── linker.ld         # ELF linker script
+│   ├── kernel64.c      # 64-bit kernel main
+│   ├── pmm64.c         # Physical memory manager
+│   ├── paging64.c      # 4-level paging
+│   ├── kheap64.c       # Kernel heap allocator
+│   ├── fs.c            # OpenFS implementation
+│   ├── gpt.c           # GPT partition driver
+│   ├── disk.c          # ATA disk driver
+│   ├── hid_keyboard.c  # USB HID keyboard
+│   └── shell.c         # Natural language shell
 ├── include/
-│   ├── stdint.h          # Standard integer types
-│   └── stddef.h          # Standard definitions
-├── grub.cfg              # GRUB configuration for ISO
-├── Makefile              # Unix build
-├── build.bat             # Windows build
-└── README.md             # This file
+│   ├── stdint.h        # Standard integer types
+│   ├── stddef.h        # Standard definitions
+│   ├── pmm.h           # PMM interface
+│   ├── paging.h        # Paging structures
+│   ├── kheap.h         # Heap allocator
+│   ├── fs.h            # OpenFS structures
+│   ├── gpt.h           # GPT driver
+│   ├── disk.h          # ATA driver
+│   ├── usb.h           # USB host controller
+│   ├── uhci.h          # UHCI driver
+│   └── hid_keyboard.h  # USB HID keyboard
+├── linker/
+│   ├── linker64.ld     # 64-bit linker script
+│   └── linker.ld       # 32-bit linker script
+├── grub.cfg            # GRUB configuration
+├── Makefile            # Build system
+├── build.bat           # Windows build script
+└── .github/workflows/
+    └── build.yml       # GitHub Actions CI
 ```
 
 ## Prerequisites
 
-### Windows
-
-1. **MSYS2** or similar POSIX environment:
-   - Install from https://www.msys2.org/
-   - Install packages:
-     ```bash
-     pacman -S mingw-w64-i686-gcc
-     pacman -S mingw-w64-i686-binutils
-     pacman -S mingw-w64-i686-nasm
-     pacman -S qemu
-     ```
-
-2. Add to PATH:
-   - `C:\msys64\mingw32\bin`
-   - `C:\msys64\usr\bin`
-
-### Linux/macOS
+### Windows (MSYS2)
 
 ```bash
-# Debian/Ubuntu
-sudo apt-get install gcc-multilib nasm qemu-system-x86 grub-pc-bin
-
-# macOS (with Homebrew)
-brew install i686-elf-gcc nasm qemu
+pacman -S mingw-w64-x86_64-gcc
+pacman -S mingw-w64-x86_64-binutils
+pacman -S mingw-w64-x86_64-nasm
+pacman -S qemu
 ```
 
-## Building
-
-### Windows (with MSYS2)
-
-```bash
-# In MSYS2 MinGW 32-bit terminal
-make check    # Verify tools
-make          # Build kernel
-make run      # Run in QEMU (direct load)
-make iso      # Build bootable ISO
-make run-iso  # Run ISO in QEMU
-```
+Add to PATH:
+- `C:\msys64\mingw64\bin`
+- `C:\msys64\usr\bin`
 
 ### Linux
 
 ```bash
-# Check dependencies
-make check
-
-# Build
-make
-
-# Run in QEMU
-make run
-
-# Run tests
-make test
+sudo apt-get install gcc nasm qemu-system-x86 grub-pc-bin xorriso
 ```
 
-### Cross-Compiler (recommended)
-
-For more reliable builds, use a dedicated i686-elf cross-compiler:
+## Building
 
 ```bash
-# Download from: https://github.com/lordmilko/i686-elf-tools
-# Or build your own following OSDev wiki instructions
-
-# The Makefile will auto-detect i686-elf-gcc if available
+make check     # Verify tools
+make arch64    # Build 64-bit kernel
+make iso       # Create bootable ISO
+make run-iso   # Run in QEMU
 ```
+
+## Boot Process
+
+1. **BIOS** -> GRUB bootloader
+2. **GRUB** -> Loads kernel at 2MB, validates Multiboot
+3. **boot64.asm** -> 16-bit real mode -> 32-bit protected mode -> 64-bit long mode
+4. **kernel64.c** -> PMM init, paging, heap, filesystem, shell
+
+## Memory Layout
+
+```
+0x0000000000000000 - 0x00007FFFFFFFFFFF  User space (128TB)
+0xFFFF800000000000 - 0xFFFF8000000FFFFF  Physical memory map
+0xFFFF800000100000 - 0xFFFF800000FFFFFF  Kernel heap
+0xFFFF800001000000 - ...                  Higher-half kernel code
+```
+
+## OpenFS Filesystem
+
+NTFS-inspired design:
+- Master File Table (MFT) with attribute records
+- Supports: `$FILE_NAME`, `$DATA`, `$STANDARD_INFORMATION`
+- File names as UTF-16LE (converted to ASCII)
+- Resident data storage for small files
+
+## Shell Commands
+
+Natural language commands:
+
+| Command | Description |
+|---------|-------------|
+| `show files` | List files in current directory |
+| `show file <name>` | Display file contents |
+| `make folder <name>` | Create directory |
+| `make file <name>` | Create empty file |
+| `remove <name>` | Delete file/folder |
+| `go to <path>` | Change directory |
+| `help` | Show all commands |
 
 ## CI/CD
 
-This project includes GitHub Actions workflows:
+![Build](https://github.com/CazyUndee/OpenSYS/workflows/Build%20OpenCode%20OS/badge.svg)
 
-- **Build workflow** (`.github/workflows/build.yml`):
-  - Compiles the kernel on every push/PR
-  - Creates bootable ISO
-  - Runs boot test in QEMU
-  - Uploads artifacts
-
-- **Status badges:**
-  ![Build](https://github.com/CazyUndee/OpenSYS/workflows/Build%20OpenCode%20OS/badge.svg)
-
-## What It Does
-
-When booted, the kernel:
-
-1. Initializes VGA text mode (80x25 color)
-2. Validates Multiboot signature from GRUB
-3. Prints boot status messages
-4. Halts the CPU with interrupts disabled
-
-Expected output:
-```
-OpenCode OS v0.1
-==================
-
-[OK] Multiboot validated
-[OK] Kernel loaded at 0x100000
-[OK] Stack initialized
-[OK] VGA driver active
-[OK] MBI at 0x...
-
-System ready. Halting...
-```
-
-## Technical Details
-
-### Boot Process
-
-1. **BIOS** → loads GRUB bootloader
-2. **GRUB** → parses Multiboot header, loads kernel to 0x100000
-3. **GRUB** → jumps to `_start` with:
-   - `EAX = 0x2BADB002` (Multiboot magic)
-   - `EBX` = pointer to Multiboot info structure
-4. **Boot stub** → sets up stack, captures registers
-5. **Kernel** → initializes VGA, prints messages, halts
-
-### Memory Layout
-
-```
-0x00000000 - 0x000FFFFF   Low 1MB (reserved, BIOS, VGA, etc.)
-0x00100000 - 0x00??????   Kernel code/data (where we load)
-    .multiboot             Multiboot header (must be first)
-    .text                  Code
-    .rodata                Read-only data
-    .data                  Initialized data
-    .bss                   Uninitialized data + stack
-```
-
-### Why No Assembly?
-
-The boot stub is pure C because:
-- Modern GCC generates proper 32-bit code
-- Easier to read/maintain
-- Still meets Multiboot spec
-- Works with standard toolchain
-
-Traditional Assembly boot files are included as `boot.asm` for reference.
+Automated builds via GitHub Actions.
 
 ## Next Steps
 
-To extend this kernel:
-
-1. **GDT/IDT** - Proper segmentation and interrupts
-2. **Keyboard input** - Port I/O for user interaction
-3. **Memory management** - Parse Multiboot memory map, implement kmalloc
-4. **Paging** - Virtual memory
-5. **Processes** - Context switching, multitasking
-6. **Filesystem** - Read/write storage
-7. **Userspace** - ELF loading, system calls
-
-## Troubleshooting
-
-### "Invalid multiboot magic"
-- GRUB not loading as Multiboot. Check:
-  - Header magic: `0x1BADB002`
-  - Checksum is correct (negative sum of magic + flags)
-  - Header is in `.multiboot` section at start of file
-
-### Black screen
-- VGA not initialized. Check:
-  - Running in QEMU or real hardware with VGA
-  - `terminal_initialize()` was called
-  - `VGA_BUFFER = 0xB8000` is correct for color text mode
-
-### Build errors
-- Ensure 32-bit toolchain: `gcc -m32`
-- Install multilib if on 64-bit Linux: `gcc-multilib`
+- [ ] USB controller initialization (UHCI/EHCI)
+- [ ] More shell commands
+- [ ] Non-resident file data for large files
+- [ ] Real hardware testing
 
 ## License
 
-Public domain. Build your own OS from here.
+Public domain.
