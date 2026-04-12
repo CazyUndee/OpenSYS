@@ -1,0 +1,41 @@
+# OpenCode OS - Git Ignore
+
+# Build artifacts
+bin/
+obj/
+*.o
+*.elf
+*.bin
+*.iso
+
+# ISO creation directory
+iso/
+
+# GDB
+.gdb_history
+*.gdb
+
+# QEMU
+*.qcow2
+*.img
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.log
+*.bak
+
+# Tags
+TAGS
+tags
+cscope.*
