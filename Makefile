@@ -8,14 +8,18 @@ ifeq ($(CROSS_PREFIX),)
   # No cross-compiler found, use native with -m32
   CC = gcc
   LD = ld
+  NASM = nasm
   CFLAGS = -m32 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude
   LDFLAGS = -m elf_i386 -T linker/linker.ld -nostdlib
+  NASMFLAGS = -f elf32
 else
   # Use cross-compiler
   CC = i686-elf-gcc
   LD = i686-elf-ld
+  NASM = nasm
   CFLAGS = -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude
   LDFLAGS = -T linker/linker.ld -nostdlib
+  NASMFLAGS = -f elf32
 endif
 
 SRCDIR = src
@@ -25,9 +29,11 @@ BINDIR = bin
 
 # Source files
 BOOT_SRC = $(BOOTDIR)/boot_c.c
+BOOT_ASM = $(BOOTDIR)/interrupts.asm
 SOURCES = $(wildcard $(SRCDIR)/*.c)
 OBJECTS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SOURCES))
 BOOT_OBJ = $(OBJDIR)/boot.o
+ISR_OBJ = $(OBJDIR)/interrupts.o
 
 TARGET = $(BINDIR)/kernel.bin
 ISO = $(BINDIR)/os.iso
@@ -43,17 +49,21 @@ $(OBJDIR):
 $(BINDIR):
 	@mkdir -p $(BINDIR)
 
-# Compile boot
+# Compile C boot file
 $(BOOT_OBJ): $(BOOT_SRC) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Assemble interrupt stubs
+$(ISR_OBJ): $(BOOT_ASM) | $(OBJDIR)
+	$(NASM) $(NASMFLAGS) -o $@ $<
 
 # Compile kernel sources
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Link
-$(TARGET): $(BOOT_OBJ) $(OBJECTS) | $(BINDIR)
-	$(LD) $(LDFLAGS) -o $@ $(BOOT_OBJ) $(OBJECTS)
+$(TARGET): $(BOOT_OBJ) $(ISR_OBJ) $(OBJECTS) | $(BINDIR)
+	$(LD) $(LDFLAGS) -o $@ $(BOOT_OBJ) $(ISR_OBJ) $(OBJECTS)
 	@echo "========================================"
 	@echo "Build complete: $@"
 	@echo "========================================"
@@ -93,6 +103,7 @@ check:
 	@echo "Checking build dependencies..."
 	@which $(CC) >/dev/null 2>&1 || (echo "ERROR: $(CC) not found. Install gcc or i686-elf-gcc"; exit 1)
 	@which $(LD) >/dev/null 2>&1 || (echo "ERROR: $(LD) not found"; exit 1)
+	@which $(NASM) >/dev/null 2>&1 || (echo "ERROR: $(NASM) not found. Install nasm"; exit 1)
 	@which qemu-system-i386 >/dev/null 2>&1 || echo "WARNING: qemu-system-i386 not found (run target will fail)"
 	@echo "All required tools found"
 
@@ -110,9 +121,11 @@ info:
 	@echo "==============================="
 	@echo "CC: $(CC)"
 	@echo "LD: $(LD)"
+	@echo "NASM: $(NASM)"
 	@echo "CFLAGS: $(CFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@echo ""
 	@echo "Sources:"
 	@echo "  Boot: $(BOOT_SRC)"
+	@echo "  ISR: $(BOOT_ASM)"
 	@echo "  Kernel: $(SOURCES)"

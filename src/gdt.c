@@ -7,6 +7,7 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
 #include "../include/gdt.h"
 
 struct gdt_entry {

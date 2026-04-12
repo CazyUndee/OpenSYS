@@ -7,8 +7,11 @@
 // Multiboot 1 Header
 // ============================================================================
 
+// Multiboot header - referenced by GRUB bootloader, not by code
+// The __attribute__((used)) prevents "unused" warnings since GRUB reads this directly
 __attribute__((section(".multiboot")))
 __attribute__((aligned(4)))
+__attribute__((used))
 static const uint32_t multiboot_header[3] = {
     0x1BADB002,      // Magic
     0x00000000,      // Flags
