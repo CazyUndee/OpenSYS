@@ -1,4 +1,4 @@
-# OpenCode OS
+# OpenSYS OS
 
 A minimal x86 32-bit operating system kernel built from scratch.
 
