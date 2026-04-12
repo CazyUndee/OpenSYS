@@ -3,8 +3,8 @@
 
 #define NULL ((void*)0)
 
-/* size_t for 32-bit x86 */
-typedef unsigned long size_t;
-typedef long ptrdiff_t;
+/* Use compiler built-in types for freestanding environment */
+typedef __SIZE_TYPE__ size_t;
+typedef __PTRDIFF_TYPE__ ptrdiff_t;
 
 #endif
