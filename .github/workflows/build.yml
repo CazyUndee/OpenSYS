@@ -29,7 +29,7 @@ jobs:
         nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
 
         echo "Compiling 64-bit sources..."
-        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr_stubs ps2_keyboard idt64 pic; do
+        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr_stubs ps2_keyboard idt64 pic ramfs; do
           echo "  Compiling ${src}.c"
           gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
             -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \

@@ -27,7 +27,7 @@ jobs:
         nasm -f elf64 boot/boot64.asm -o obj/boot.o
         nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
 
-        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr_stubs ps2_keyboard idt64 pic; do
+        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr_stubs ps2_keyboard idt64 pic ramfs; do
           gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
             -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
             -Iinclude -mcmodel=large

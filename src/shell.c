@@ -6,10 +6,10 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "../include/fs.h"
 #include "../include/ps2_keyboard.h"
+#include "../include/ramfs.h"
 
-#define MAX_CMD_LEN    256
+#define MAX_CMD_LEN 256
 
 /* VGA output */
 static volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
@@ -20,7 +20,6 @@ static int cursor_y = 0;
 static char cwd[256] = "/";
 
 /* External functions */
-extern uint64_t find_file(const char* path);
 extern uint64_t pmm_get_total(void);
 extern uint64_t pmm_get_free(void);
 
@@ -51,7 +50,17 @@ static void puts_nl(const char* s) { puts(s); putc('\n'); }
 
 static void clear_screen(void) {
     for (int i = 0; i < 80 * 25; i++) vga[i] = 0x0720;
-    cursor_x = 0; cursor_y = 0;
+    cursor_x = 0;
+    cursor_y = 0;
+}
+
+static void put_dec(uint64_t n) {
+    char buf[24];
+    int i = 23;
+    buf[i] = 0;
+    if (n == 0) { puts("0"); return; }
+    while (n > 0) { buf[--i] = '0' + (n % 10); n /= 10; }
+    puts(&buf[i]);
 }
 
 static int strlen(const char* s) { int n = 0; while (*s++) n++; return n; }
@@ -62,9 +71,6 @@ static int strcmp(const char* a, const char* b) {
 static int strncmp(const char* a, const char* b, int n) {
     while (n-- && *a && *a == *b) { a++; b++; }
     return n < 0 ? 0 : *a - *b;
-}
-static char* strcpy(char* dst, const char* src) {
-    char* d = dst; while ((*d++ = *src++)); return dst;
 }
 static char* trim(char* s) {
     while (*s == ' ') s++;
@@ -88,73 +94,231 @@ static int cmd_starts(const char* input, const char* pattern) {
     return strncmp(input, pattern, strlen(pattern)) == 0;
 }
 
-static char* extract_after(const char* input, const char* pattern) {
-    int plen = strlen(pattern);
-    const char* p = input;
-    while (*p) {
-        if (cmd_match(p, pattern) && (p == input || *(p-1) == ' ')) {
-            p += plen;
-            while (*p == ' ') p++;
-            return (char*)p;
-        }
-        p++;
+static int cmd_equals(const char* input, const char* pattern) {
+    return strcmp(input, pattern) == 0;
+}
+
+/* ========== FILE LISTING CALLBACK ========== */
+static void list_callback(const char* name, int is_dir, uint32_t size) {
+    puts("  ");
+    if (is_dir) {
+        puts("[DIR]  ");
+    } else {
+        puts("       ");
+        put_dec(size);
+        puts(" bytes  ");
     }
-    return 0;
+    puts_nl(name);
 }
 
 /* ========== COMMANDS ========== */
 
-static void cmd_list(const char* path) {
-    puts_nl("  (directory listing coming soon)");
+static void cmd_list(void) {
+    int count = ramfs_get_file_count();
+    if (count == 0) {
+        puts_nl("  (empty filesystem)");
+        return;
+    }
+    puts_nl("");
+    ramfs_list(list_callback);
+    puts_nl("");
 }
 
 static void cmd_show_memory(void) {
-    uint64_t total = pmm_get_total();
-    uint64_t free = pmm_get_free();
-    
+    uint64_t total = pmm_get_total() / (1024 * 1024);
+    uint64_t free = pmm_get_free() / (1024 * 1024);
+
     puts_nl("");
     puts("  Total RAM: ");
-    // put_dec would go here
-    puts("MB\n");
+    put_dec(total);
+    puts_nl(" MB");
     puts("  Free RAM:  ");
-    puts("MB\n\n");
+    put_dec(free);
+    puts_nl(" MB");
+    puts_nl("");
+}
+
+static void cmd_create_file(const char* name) {
+    if (!name || !*name) {
+        puts_nl("  Usage: create <filename>");
+        return;
+    }
+    int fd = ramfs_create(name);
+    if (fd < 0) {
+        puts_nl("  Error: Could not create file (filesystem full?)");
+    } else {
+        puts("  Created: ");
+        puts_nl(name);
+    }
+}
+
+static void cmd_mkdir(const char* name) {
+    if (!name || !*name) {
+        puts_nl("  Usage: mkdir <dirname>");
+        return;
+    }
+    int result = ramfs_mkdir(name);
+    if (result < 0) {
+        puts_nl("  Error: Could not create directory");
+    } else {
+        puts("  Created directory: ");
+        puts_nl(name);
+    }
+}
+
+static void cmd_delete(const char* name) {
+    if (!name || !*name) {
+        puts_nl("  Usage: delete <filename>");
+        return;
+    }
+    int result = ramfs_delete(name);
+    if (result < 0) {
+        puts_nl("  Error: File not found");
+    } else {
+        puts("  Deleted: ");
+        puts_nl(name);
+    }
+}
+
+static void cmd_write_file(const char* name, const char* content) {
+    if (!name || !*name) {
+        puts_nl("  Usage: write <filename> <content>");
+        return;
+    }
+    int fd = ramfs_find(name);
+    if (fd < 0) {
+        puts_nl("  Error: File not found");
+        return;
+    }
+    int len = strlen(content);
+    ramfs_write(fd, content, len);
+    puts("  Wrote ");
+    put_dec(len);
+    puts(" bytes to ");
+    puts_nl(name);
+}
+
+static void cmd_read_file(const char* name) {
+    if (!name || !*name) {
+        puts_nl("  Usage: read <filename>");
+        return;
+    }
+    int fd = ramfs_find(name);
+    if (fd < 0) {
+        puts_nl("  Error: File not found");
+        return;
+    }
+    uint32_t size = ramfs_size(fd);
+    if (size == 0) {
+        puts_nl("  (empty file)");
+        return;
+    }
+    
+    char buf[256];
+    uint32_t to_read = size > 255 ? 255 : size;
+    ramfs_read(fd, buf, to_read, 0);
+    buf[to_read] = 0;
+    
+    puts_nl("");
+    puts_nl(buf);
+    puts_nl("");
+}
+
+static void cmd_file_info(const char* name) {
+    if (!name || !*name) {
+        puts_nl("  Usage: info <filename>");
+        return;
+    }
+    int fd = ramfs_find(name);
+    if (fd < 0) {
+        puts_nl("  Error: File not found");
+        return;
+    }
+    
+    puts_nl("");
+    puts("  Name: ");
+    puts_nl(ramfs_name(fd));
+    puts("  Size: ");
+    put_dec(ramfs_size(fd));
+    puts_nl(" bytes");
+    puts("  Type: ");
+    puts_nl(ramfs_is_dir(fd) ? "Directory" : "File");
+    puts_nl("");
 }
 
 static void show_help(void) {
     puts_nl("");
     puts_nl("  Natural Language Commands:");
-    puts_nl("  --------------------------");
-    puts_nl("  list [directory]       - show files");
-    puts_nl("  show memory            - display memory usage");
-    puts_nl("  clear screen           - clear display");
-    puts_nl("  help                   - show this help");
+    puts_nl("  -------------------------");
+    puts_nl("  list              - show all files");
+    puts_nl("  create <name>     - create new file");
+    puts_nl("  mkdir <name>      - create directory");
+    puts_nl("  delete <name>     - delete file/dir");
+    puts_nl("  write <name> <text> - write text to file");
+    puts_nl("  read <name>       - display file contents");
+    puts_nl("  info <name>       - show file information");
+    puts_nl("  memory            - show memory usage");
+    puts_nl("  clear             - clear screen");
+    puts_nl("  help              - show this help");
     puts_nl("");
 }
 
 static void process_command(char* cmd) {
     cmd = trim(cmd);
     if (strlen(cmd) == 0) return;
-    
-    if (cmd_starts(cmd, "list")) {
-        cmd_list(cwd);
+
+    /* Skip leading word to find argument */
+    char* arg1 = cmd;
+    while (*arg1 && *arg1 != ' ') arg1++;
+    if (*arg1 == ' ') {
+        *arg1 = 0;
+        arg1++;
+        while (*arg1 == ' ') arg1++;
     }
-    else if (cmd_match(cmd, "show memory") || cmd_match(cmd, "memory")) {
+    
+    char* arg2 = arg1;
+    while (*arg2 && *arg2 != ' ') arg2++;
+    if (*arg2 == ' ') {
+        *arg2 = 0;
+        arg2++;
+        while (*arg2 == ' ') arg2++;
+    }
+
+    if (cmd_equals(cmd, "list") || cmd_equals(cmd, "ls") || cmd_equals(cmd, "dir")) {
+        cmd_list();
+    }
+    else if (cmd_equals(cmd, "create") || cmd_equals(cmd, "touch") || cmd_equals(cmd, "make")) {
+        cmd_create_file(arg1);
+    }
+    else if (cmd_equals(cmd, "mkdir")) {
+        cmd_mkdir(arg1);
+    }
+    else if (cmd_equals(cmd, "delete") || cmd_equals(cmd, "rm") || cmd_equals(cmd, "del")) {
+        cmd_delete(arg1);
+    }
+    else if (cmd_equals(cmd, "write")) {
+        cmd_write_file(arg1, arg2);
+    }
+    else if (cmd_equals(cmd, "read") || cmd_equals(cmd, "cat") || cmd_equals(cmd, "type")) {
+        cmd_read_file(arg1);
+    }
+    else if (cmd_equals(cmd, "info")) {
+        cmd_file_info(arg1);
+    }
+    else if (cmd_equals(cmd, "memory") || cmd_equals(cmd, "mem")) {
         cmd_show_memory();
     }
-    else if (cmd_match(cmd, "clear screen") || cmd_match(cmd, "clear") || cmd_match(cmd, "cls")) {
+    else if (cmd_equals(cmd, "clear") || cmd_equals(cmd, "cls")) {
         clear_screen();
     }
-    else if (cmd_match(cmd, "help") || cmd_match(cmd, "commands")) {
+    else if (cmd_equals(cmd, "help") || cmd_equals(cmd, "?")) {
         show_help();
     }
-    else if (cmd_match(cmd, "where am i") || cmd_match(cmd, "pwd")) {
-        puts("  "); puts_nl(cwd);
-    }
     else {
-        puts("  Unknown: \"");
+        puts("  Unknown command: \"");
         puts(cmd);
         puts_nl("\"");
-        puts_nl("  Type 'help' for commands.");
+        puts_nl("  Type 'help' for available commands.");
     }
 }
 
@@ -166,15 +330,14 @@ void shell_run(void) {
 
     clear_screen();
     puts_nl("OpenSYS Natural Shell v1.0");
+    puts_nl("RAM-based filesystem ready.");
     puts_nl("Type 'help' for commands.\n");
 
     while (1) {
-        puts(cwd);
         puts("> ");
 
         pos = 0;
         while (1) {
-            /* Poll PS/2 keyboard */
             if (ps2_keyboard_has_key()) {
                 char c = ps2_keyboard_getc();
 
@@ -193,17 +356,9 @@ void shell_run(void) {
                 }
             }
 
-            /* Small delay to not burn CPU */
             for (volatile int i = 0; i < 1000; i++);
         }
 
         process_command(cmd_buffer);
-        puts_nl("");
     }
-}
-
-/* Fallback for PS/2 keyboard if USB not available */
-void shell_run_ps2(void) {
-    /* Same as above but uses PS/2 scancodes */
-    shell_run();
 }

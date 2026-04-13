@@ -64,6 +64,7 @@ extern void idt_init(void);
 extern void pic_init(void);
 extern int ps2_keyboard_init(void);
 extern void enable_interrupts(void);
+extern void ramfs_init(void);
 
 void kernel_main(uint64_t magic, uint64_t mbi) {
     clear();
@@ -123,6 +124,10 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     } else {
         puts(" PS/2 keyboard FAILED (using polled mode)\n");
     }
+
+    puts("\n[INIT] RAM Filesystem...\n");
+    ramfs_init();
+    puts(" RAM filesystem initialized\n");
 
     /* Enable interrupts */
     __asm__ volatile ("sti");
