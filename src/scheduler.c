@@ -14,6 +14,7 @@ static process_t* ready_queue = 0;
 static process_t* ready_queue_tail = 0;
 static process_t* current_process = 0;
 static int schedule_needed = 0;
+static int time_slice_counter = 0;
 
 void scheduler_init(void) {
     ready_queue = 0;
@@ -70,12 +71,15 @@ process_t* scheduler_pick(void) {
 
 void scheduler_tick(void) {
     if (!current_process) return;
+
+    time_slice_counter++;
     
-    /* Check if time slice expired */
-    current_process->cpu_time += TIME_SLICE_MS;
-    
-    /* Force reschedule */
-    schedule_needed = 1;
+    /* Only reschedule after time slice expires */
+    if (time_slice_counter >= TIME_SLICE_MS) {
+        time_slice_counter = 0;
+        current_process->cpu_time += TIME_SLICE_MS;
+        schedule_needed = 1;
+    }
 }
 
 void scheduler_reschedule(void) {

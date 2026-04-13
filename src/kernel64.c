@@ -72,24 +72,24 @@ extern void process_init(void);
 static void test_proc_a(void* arg) {
     (void)arg;
     volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
-    int x = 60;
     while (1) {
-        vga[2 * 80 + x] = 'A' | 0x0A00;
-        for (volatile int i = 0; i < 1000000; i++);
-        vga[2 * 80 + x] = ' ' | 0x0A00;
-        for (volatile int i = 0; i < 1000000; i++);
+        vga[2 * 80 + 60] = 'A' | 0x0A00;
+        extern void process_yield(void);
+        process_yield();
+        vga[2 * 80 + 60] = ' ' | 0x0A00;
+        process_yield();
     }
 }
 
 static void test_proc_b(void* arg) {
     (void)arg;
     volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
-    int x = 62;
     while (1) {
-        vga[2 * 80 + x] = 'B' | 0x0C00;
-        for (volatile int i = 0; i < 800000; i++);
-        vga[2 * 80 + x] = ' ' | 0x0C00;
-        for (volatile int i = 0; i < 800000; i++);
+        vga[2 * 80 + 62] = 'B' | 0x0C00;
+        extern void process_yield(void);
+        process_yield();
+        vga[2 * 80 + 62] = ' ' | 0x0C00;
+        process_yield();
     }
 }
 
