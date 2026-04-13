@@ -8,6 +8,7 @@ extern isr_handler
 extern irq_handler
 extern ps2_keyboard_handler
 extern timer_handler
+extern scheduler_timer_tick
 
 ; CPU Exception handlers
 %macro ISR 1
@@ -125,10 +126,11 @@ irq_common:
     ; Get IRQ number
     mov rax, [rsp + 15*8 + 8]
 
-    ; IRQ0 - Timer
+    ; IRQ0 - Timer (calls scheduler)
     cmp rax, 32
     jne .not_timer
     call timer_handler
+    call scheduler_timer_tick
     jmp .done_specific
 
 .not_timer:

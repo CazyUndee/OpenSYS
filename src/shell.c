@@ -8,6 +8,8 @@
 #include <stddef.h>
 #include "../include/ps2_keyboard.h"
 #include "../include/ramfs.h"
+#include "../include/process.h"
+#include "../include/scheduler.h"
 
 #define MAX_CMD_LEN 256
 
@@ -138,6 +140,47 @@ static void cmd_show_memory(void) {
     puts_nl("");
 }
 
+static void cmd_ps(void) {
+    puts_nl("");
+    puts_nl("  PID  Name       State     CPU Time");
+    puts_nl("  ---  ---------  --------  --------");
+    
+    extern process_t* process_get_by_index(int i);
+    extern int process_get_count(void);
+    
+    int count = 0;
+    for (int i = 0; i < 64; i++) {
+        process_t* p = process_get_by_index(i);
+        if (p && p->state != 0) {
+            puts("  ");
+            put_dec(p->pid);
+            puts("  ");
+            puts(p->name);
+            
+            int namelen = strlen(p->name);
+            for (int j = namelen; j < 10; j++) putc(' ');
+            
+            const char* state_str = "???";
+            if (p->state == 1) state_str = "READY";
+            else if (p->state == 2) state_str = "RUNNING";
+            else if (p->state == 3) state_str = "BLOCKED";
+            else if (p->state == 4) state_str = "ZOMBIE";
+            puts(state_str);
+            
+            puts("  ");
+            put_dec(p->cpu_time);
+            puts("ms");
+            putc('\n');
+            count++;
+        }
+    }
+    
+    puts("\n  ");
+    put_dec(count);
+    puts_nl(" processes total");
+    puts_nl("");
+}
+
 static void cmd_create_file(const char* name) {
     if (!name || !*name) {
         puts_nl("  Usage: create <filename>");
@@ -250,16 +293,17 @@ static void show_help(void) {
     puts_nl("");
     puts_nl("  Natural Language Commands:");
     puts_nl("  -------------------------");
-    puts_nl("  list              - show all files");
-    puts_nl("  create <name>     - create new file");
-    puts_nl("  mkdir <name>      - create directory");
-    puts_nl("  delete <name>     - delete file/dir");
-    puts_nl("  write <name> <text> - write text to file");
-    puts_nl("  read <name>       - display file contents");
-    puts_nl("  info <name>       - show file information");
-    puts_nl("  memory            - show memory usage");
-    puts_nl("  clear             - clear screen");
-    puts_nl("  help              - show this help");
+    puts_nl("  list        - show all files");
+    puts_nl("  create <n>  - create new file");
+    puts_nl("  mkdir <n>   - create directory");
+    puts_nl("  delete <n>  - delete file/dir");
+    puts_nl("  write <n> <text> - write to file");
+    puts_nl("  read <n>    - display file contents");
+    puts_nl("  info <n>    - show file information");
+    puts_nl("  ps          - list processes");
+    puts_nl("  memory      - show memory usage");
+    puts_nl("  clear       - clear screen");
+    puts_nl("  help        - show this help");
     puts_nl("");
 }
 
@@ -286,6 +330,9 @@ static void process_command(char* cmd) {
 
     if (cmd_equals(cmd, "list") || cmd_equals(cmd, "ls") || cmd_equals(cmd, "dir")) {
         cmd_list();
+    }
+    else if (cmd_equals(cmd, "ps") || cmd_equals(cmd, "procs") || cmd_equals(cmd, "processes")) {
+        cmd_ps();
     }
     else if (cmd_equals(cmd, "create") || cmd_equals(cmd, "touch") || cmd_equals(cmd, "make")) {
         cmd_create_file(arg1);

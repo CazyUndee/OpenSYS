@@ -66,6 +66,32 @@ extern int ps2_keyboard_init(void);
 extern void enable_interrupts(void);
 extern void ramfs_init(void);
 extern void timer_init(void);
+extern void process_init(void);
+
+/* Test processes */
+static void test_proc_a(void* arg) {
+    (void)arg;
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    int x = 60;
+    while (1) {
+        vga[2 * 80 + x] = 'A' | 0x0A00;
+        for (volatile int i = 0; i < 1000000; i++);
+        vga[2 * 80 + x] = ' ' | 0x0A00;
+        for (volatile int i = 0; i < 1000000; i++);
+    }
+}
+
+static void test_proc_b(void* arg) {
+    (void)arg;
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    int x = 62;
+    while (1) {
+        vga[2 * 80 + x] = 'B' | 0x0C00;
+        for (volatile int i = 0; i < 800000; i++);
+        vga[2 * 80 + x] = ' ' | 0x0C00;
+        for (volatile int i = 0; i < 800000; i++);
+    }
+}
 
 void kernel_main(uint64_t magic, uint64_t mbi) {
     clear();
@@ -140,6 +166,19 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     puts("\n[INIT] RAM Filesystem...\n");
     ramfs_init();
     puts(" RAM filesystem initialized\n");
+
+    puts("\n[INIT] Process Manager...\n");
+    process_init();
+    puts(" Process manager initialized\n");
+
+    /* Create test processes */
+    typedef uint64_t pid_t;
+    typedef void (*proc_entry_t)(void*);
+    extern pid_t process_create(const char* name, proc_entry_t entry, void* arg);
+    process_create("test_a", test_proc_a, 0);
+    process_create("test_b", test_proc_b, 0);
+    
+    puts(" Test processes created\n");
 
     /* Enable interrupts */
     __asm__ volatile ("sti");
