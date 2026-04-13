@@ -7,6 +7,7 @@ bits 64
 extern isr_handler
 extern irq_handler
 extern ps2_keyboard_handler
+extern timer_handler
 
 ; CPU Exception handlers
 %macro ISR 1
@@ -40,10 +41,10 @@ isr_common:
     push r13
     push r14
     push r15
-    
+
     mov rdi, rsp
     call isr_handler
-    
+
     pop r15
     pop r14
     pop r13
@@ -120,29 +121,39 @@ irq_common:
     push r13
     push r14
     push r15
-    
-    ; Check if IRQ1 (keyboard)
+
+    ; Get IRQ number
     mov rax, [rsp + 15*8 + 8]
+
+    ; IRQ0 - Timer
+    cmp rax, 32
+    jne .not_timer
+    call timer_handler
+    jmp .done_specific
+
+.not_timer:
+    ; IRQ1 - Keyboard
     cmp rax, 33
     jne .not_keyboard
     call ps2_keyboard_handler
-    jmp .done_irq
-    
+    jmp .done_specific
+
 .not_keyboard:
+    ; Other IRQs - call generic handler
     mov rdi, rsp
     call irq_handler
-    
-.done_irq:
+
+.done_specific:
     ; Send EOI to master PIC
     mov al, 0x20
     out 0x20, al
-    
+
     ; Send EOI to slave PIC if IRQ >= 8
     mov rax, [rsp + 15*8 + 8]
     cmp rax, 40
     jl .skip_slave
     out 0xA0, al
-    
+
 .skip_slave:
     pop r15
     pop r14

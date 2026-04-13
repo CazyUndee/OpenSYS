@@ -65,6 +65,7 @@ extern void pic_init(void);
 extern int ps2_keyboard_init(void);
 extern void enable_interrupts(void);
 extern void ramfs_init(void);
+extern void timer_init(void);
 
 void kernel_main(uint64_t magic, uint64_t mbi) {
     clear();
@@ -118,11 +119,22 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     pic_init();
     puts(" PIC remapped (IRQ 32-47)\n");
 
+    timer_init();
+    puts(" Timer initialized (1000 Hz)\n");
+
     puts("\n[INIT] PS/2 Keyboard...\n");
     if (ps2_keyboard_init() == 0) {
         puts(" PS/2 keyboard initialized\n");
+        
+        /* Unmask IRQ1 (keyboard) and IRQ0 (timer) */
+        __asm__ volatile (
+            "inb $0x21, %%al\n"
+            "and $0xFC, %%al\n"  /* Enable IRQ0 and IRQ1 */
+            "outb %%al, $0x21\n"
+            : : : "al"
+        );
     } else {
-        puts(" PS/2 keyboard FAILED (using polled mode)\n");
+        puts(" PS/2 keyboard FAILED\n");
     }
 
     puts("\n[INIT] RAM Filesystem...\n");
