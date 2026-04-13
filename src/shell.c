@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../include/fs.h"
-#include "../include/hid_keyboard.h"
+#include "../include/ps2_keyboard.h"
 
 #define MAX_CMD_LEN    256
 
@@ -163,23 +163,21 @@ static void process_command(char* cmd) {
 void shell_run(void) {
     char cmd_buffer[MAX_CMD_LEN];
     int pos = 0;
-    
+
     clear_screen();
     puts_nl("OpenSYS Natural Shell v1.0");
     puts_nl("Type 'help' for commands.\n");
-    
+
     while (1) {
         puts(cwd);
         puts("> ");
-        
+
         pos = 0;
         while (1) {
-            /* Poll USB keyboard */
-            hid_keyboard_poll();
-            
-            if (hid_keyboard_has_key()) {
-                char c = hid_keyboard_getc();
-                
+            /* Poll PS/2 keyboard */
+            if (ps2_keyboard_has_key()) {
+                char c = ps2_keyboard_getc();
+
                 if (c == '\n') {
                     putc('\n');
                     cmd_buffer[pos] = 0;
@@ -194,11 +192,11 @@ void shell_run(void) {
                     putc(c);
                 }
             }
-            
+
             /* Small delay to not burn CPU */
             for (volatile int i = 0; i < 1000; i++);
         }
-        
+
         process_command(cmd_buffer);
         puts_nl("");
     }

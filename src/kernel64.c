@@ -60,6 +60,10 @@ extern void* kmalloc(uint64_t size);
 extern void kfree(void* ptr);
 extern uint64_t kheap_get_used(void);
 extern uint64_t kheap_get_free(void);
+extern void idt_init(void);
+extern void pic_init(void);
+extern int ps2_keyboard_init(void);
+extern void enable_interrupts(void);
 
 void kernel_main(uint64_t magic, uint64_t mbi) {
     clear();
@@ -105,8 +109,28 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     puts("  kfree(1024) done\n\n");
     
     puts("[DONE] 64-bit memory system ready!\n");
-    puts("\nStarting shell...\n\n");
+
+    puts("\n[INIT] Interrupts...\n");
+    idt_init();
+    puts(" IDT loaded\n");
     
+    pic_init();
+    puts(" PIC remapped (IRQ 32-47)\n");
+
+    puts("\n[INIT] PS/2 Keyboard...\n");
+    if (ps2_keyboard_init() == 0) {
+        puts(" PS/2 keyboard initialized\n");
+    } else {
+        puts(" PS/2 keyboard FAILED (using polled mode)\n");
+    }
+
+    /* Enable interrupts */
+    __asm__ volatile ("sti");
+    puts(" Interrupts enabled\n\n");
+
+    puts("[DONE] System ready!\n");
+    puts("\nStarting shell...\n\n");
+
     extern void shell_run(void);
     shell_run();
 }
