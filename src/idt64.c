@@ -28,9 +28,13 @@ static struct idt_ptr idtr;
 /* Interrupt gate type */
 #define IDT_TYPE_INTERRUPT 0x8E
 #define IDT_TYPE_TRAP      0x8F
+#define IDT_TYPE_SYSCALL   0xEE  /* User-callable trap gate (DPL=3) */
 
 /* Kernel code selector */
 #define KERNEL_CS 0x08
+
+/* Syscall entry */
+extern void syscall_entry(void);
 
 /* ISR stubs (defined in assembly) */
 extern void isr0(void);
@@ -83,13 +87,23 @@ extern void irq14(void);
 extern void irq15(void);
 
 static void idt_set_gate(int n, uint64_t handler) {
-    idt[n].offset_low  = handler & 0xFFFF;
-    idt[n].offset_mid  = (handler >> 16) & 0xFFFF;
+    idt[n].offset_low = handler & 0xFFFF;
+    idt[n].offset_mid = (handler >> 16) & 0xFFFF;
     idt[n].offset_high = (handler >> 32) & 0xFFFFFFFF;
-    idt[n].selector    = KERNEL_CS;
-    idt[n].ist         = 0;
-    idt[n].type_attr   = IDT_TYPE_INTERRUPT;
-    idt[n].reserved    = 0;
+    idt[n].selector = KERNEL_CS;
+    idt[n].ist = 0;
+    idt[n].type_attr = IDT_TYPE_INTERRUPT;
+    idt[n].reserved = 0;
+}
+
+static void idt_set_syscall_gate(int n, uint64_t handler) {
+    idt[n].offset_low = handler & 0xFFFF;
+    idt[n].offset_mid = (handler >> 16) & 0xFFFF;
+    idt[n].offset_high = (handler >> 32) & 0xFFFFFFFF;
+    idt[n].selector = KERNEL_CS;
+    idt[n].ist = 0;
+    idt[n].type_attr = IDT_TYPE_SYSCALL;
+    idt[n].reserved = 0;
 }
 
 void idt_load(void) {
@@ -154,5 +168,13 @@ void idt_init(void) {
     idt_set_gate(46, (uint64_t)irq14);
     idt_set_gate(47, (uint64_t)irq15);
 
+    /* Syscall vector (0x80) */
+    idt_set_syscall_gate(0x80, (uint64_t)syscall_entry);
+
+    idt_load();
+}
+
+void idt_set_syscall_gate_wrapper(void) {
+    idt_set_syscall_gate(0x80, (uint64_t)syscall_entry);
     idt_load();
 }

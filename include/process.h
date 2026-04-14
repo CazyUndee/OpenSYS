@@ -34,22 +34,26 @@ typedef struct process {
     pid_t pid;
     char name[PROCESS_NAME_LEN];
     process_state_t state;
-    
+
     /* CPU context (saved on switch) */
     cpu_context_t context;
-    
-    /* Stack */
+
+    /* Stacks */
     uint64_t* kernel_stack;
     uint64_t kernel_stack_top;
-    
+    uint64_t user_stack_top;
+
     /* Memory */
-    uint64_t page_table;    /* CR3 for this process */
-    
+    struct vm_space* vm;    /* Address space */
+
     /* Scheduling */
-    uint64_t wake_time;     /* For sleeping */
+    uint64_t wake_time;
     int priority;
-    uint64_t cpu_time;      /* Total CPU time used */
-    
+    uint64_t cpu_time;
+
+    /* Exit status */
+    int exit_code;
+
     /* Linked list */
     struct process* next;
     struct process* prev;
