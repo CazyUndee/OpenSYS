@@ -3,6 +3,7 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
 #include "../include/user_bin.h"
 
 #define VGA_BUFFER 0xB8000
