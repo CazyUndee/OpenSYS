@@ -40,8 +40,8 @@ void pmm_init(uint64_t mbi_addr) {
     }
 
     if (mbi->flags & MBOOT_FLAG_MMAP) {
-        struct mboot_mmap_entry* entry = (struct mboot_mmap_entry*)(uintptr_t)mbi->mmap_addr;
-        struct mboot_mmap_entry* end = (struct mboot_mmap_entry*)((uintptr_t)mbi->mmap_addr + mbi->mmap_length);
+        struct mboot_mmap_entry* entry = (struct mboot_mmap_entry*)(uint64_t)mbi->mmap_addr;
+        struct mboot_mmap_entry* end = (struct mboot_mmap_entry*)((uint64_t)mbi->mmap_addr + mbi->mmap_length);
 
         uint64_t max_addr = 0;
         while ((uint8_t*)entry < (uint8_t*)end) {
@@ -66,8 +66,8 @@ void pmm_init(uint64_t mbi_addr) {
 
     /* Free available pages from memory map */
     if (mbi->flags & MBOOT_FLAG_MMAP) {
-        struct mboot_mmap_entry* entry = (struct mboot_mmap_entry*)(uintptr_t)mbi->mmap_addr;
-        struct mboot_mmap_entry* end = (struct mboot_mmap_entry*)((uintptr_t)mbi->mmap_addr + mbi->mmap_length);
+        struct mboot_mmap_entry* entry = (struct mboot_mmap_entry*)(uint64_t)mbi->mmap_addr;
+        struct mboot_mmap_entry* end = (struct mboot_mmap_entry*)((uint64_t)mbi->mmap_addr + mbi->mmap_length);
 
         while ((uint8_t*)entry < (uint8_t*)end) {
             if (entry->type == MBOOT_MEM_AVAILABLE) {
