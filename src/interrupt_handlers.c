@@ -72,7 +72,7 @@ void pic_send_eoi(uint8_t irq) {
  * Master: 0x20-0x27 (32-39)
  * Slave:  0x28-0x2F (40-47)
  */
-void pic_remap(void) {
+void pic_remap_std(void) {
     uint8_t a1, a2;
 
     a1 = inb(PIC1_DATA);
