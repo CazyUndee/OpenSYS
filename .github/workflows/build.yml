@@ -24,6 +24,7 @@ jobs:
           nasm -f elf64 boot/boot64.asm -o obj/boot.o
           nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
           nasm -f elf64 boot/context_switch.asm -o obj/context_switch.o
+          nasm -f elf64 boot/syscall.asm -o obj/syscall_asm.o
 
       - name: Build user program
         run: |
@@ -34,7 +35,7 @@ jobs:
 
       - name: Compile kernel
         run: |
-          for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr ps2_keyboard idt64 pic ramfs timer process scheduler switch_to vm tss gdt64 syscall elf fs gpt disk idt interrupt_handlers user_bin; do
+          for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell ps2_keyboard idt64 ramfs timer process scheduler switch_to vm tss gdt64 syscall elf fs gpt disk interrupt_handlers user_bin; do
             if [ -f "src/${src}.c" ]; then
               gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
