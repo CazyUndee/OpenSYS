@@ -6,6 +6,7 @@
 #define PROCESS_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "vm.h"
 
 #define MAX_PROCESSES 64
