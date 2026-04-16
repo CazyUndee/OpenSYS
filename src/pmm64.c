@@ -26,7 +26,7 @@ static inline int bitmap_test(uint64_t index) {
     return pmm_bitmap[index / 64] & (1ULL << (index % 64));
 }
 
-void pmm_init(uintptr_t mbi_addr) {
+void pmm_init(uint64_t mbi_addr) {
     struct mboot_info* mbi = (struct mboot_info*)mbi_addr;
 
     /* Bitmap after kernel, aligned */

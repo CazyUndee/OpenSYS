@@ -23,7 +23,7 @@ typedef uint64_t phys_addr_t;
 #define MBOOT_MEM_BADRAM     5
 
 /* Initialize PMM with multiboot info */
-void pmm_init(uintptr_t mbi_addr);
+void pmm_init(uint64_t mbi_addr);
 
 /* Allocate a single physical page */
 phys_addr_t pmm_alloc_page(void);
