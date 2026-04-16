@@ -6,7 +6,7 @@
 #include "../include/tss.h"
 #include "../include/kheap.h"
 
-static tss_t* tss = 0;
+tss_t* tss = 0;
 
 void tss_init(void) {
     tss = (tss_t*)kmalloc(sizeof(tss_t));

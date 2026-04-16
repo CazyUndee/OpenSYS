@@ -94,7 +94,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
 }
 
 void syscall_init(void) {
-    /* Set up IDT entry 0x80 */
-    extern void idt_set_syscall_gate(void);
-    idt_set_syscall_gate();
+    extern void idt_set_syscall_gate_wrapper(void);
+    idt_set_syscall_gate_wrapper();
 }
