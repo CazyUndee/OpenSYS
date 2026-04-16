@@ -8,6 +8,10 @@
 #include "../include/kheap.h"
 #include "../include/timer.h"
 #include "../include/paging.h"
+#include "../include/vm.h"
+#include "../include/pmm.h"
+#include "../include/elf.h"
+#include "../include/tss.h"
 
 #define STACK_SIZE 16384  /* 16KB stacks */
 
@@ -139,13 +143,13 @@ pid_t process_create(const char* name, process_entry_t entry, void* arg) {
     proc->context.cs = 0x08;
     proc->context.ss = 0x10;
     proc->context.rflags = 0x202;
-    
-    /* Use kernel page table for now */
-    proc->page_table = 0;
-    
+
+    /* Use kernel address space */
+    proc->vm = 0;
+
     /* Add to scheduler */
     scheduler_add(proc);
-    
+
     return proc->pid;
 }
 
@@ -205,6 +209,96 @@ void process_sleep(uint64_t ms) {
 
 void process_yield(void) {
     scheduler_reschedule();
+}
+
+vm_space_t* process_current_vm(void) {
+    process_t* proc = process_current();
+    return proc ? proc->vm : 0;
+}
+
+pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size) {
+    process_t* proc = alloc_process();
+    if (!proc) return 0;
+
+    /* Allocate kernel stack */
+    proc->kernel_stack = (uint64_t*)kmalloc(STACK_SIZE);
+    if (!proc->kernel_stack) return 0;
+    proc->kernel_stack_top = (uint64_t)((uint8_t*)proc->kernel_stack + STACK_SIZE);
+
+    /* Create address space */
+    proc->vm = vm_create_space();
+    if (!proc->vm) {
+        kfree(proc->kernel_stack);
+        return 0;
+    }
+
+    /* Allocate user stack */
+    uint64_t user_stack = 0x7FFFFFFFFFFFULL;
+    for (int i = 0; i < 16; i++) {
+        phys_addr_t phys = pmm_alloc_page();
+        if (!phys) {
+            kfree(proc->kernel_stack);
+            vm_destroy_space(proc->vm);
+            return 0;
+        }
+        vm_map_page(proc->vm, user_stack - i * PAGE_SIZE, phys, VM_FLAG_USER | VM_FLAG_PRESENT | VM_FLAG_WRITABLE);
+    }
+    proc->user_stack_top = user_stack;
+
+    /* Switch to process address space to load ELF */
+    vm_space_t* old_space = process_current() ? process_current()->vm : 0;
+    vm_switch_space(proc->vm);
+
+    /* Load ELF */
+    elf_info_t elf_info;
+    if (elf_load(elf_data, elf_size, &elf_info) < 0) {
+        if (old_space) vm_switch_space(old_space);
+        kfree(proc->kernel_stack);
+        vm_destroy_space(proc->vm);
+        return 0;
+    }
+
+    /* Switch back */
+    if (old_space) vm_switch_space(old_space);
+
+    /* Setup process */
+    proc->pid = next_pid++;
+    int i = 0;
+    while (name[i] && i < PROCESS_NAME_LEN - 1) {
+        proc->name[i] = name[i];
+        i++;
+    }
+    proc->name[i] = 0;
+    proc->state = PROC_STATE_READY;
+    proc->priority = 0;
+    proc->cpu_time = 0;
+    proc->exit_code = 0;
+
+    /* Setup kernel stack for user mode entry */
+    uint64_t* stack = (uint64_t*)proc->kernel_stack_top;
+
+    /* User context for iretq */
+    *--stack = 0x23;           /* SS (user data) */
+    *--stack = user_stack;     /* RSP */
+    *--stack = 0x202;          /* RFLAGS */
+    *--stack = 0x1B;           /* CS (user code) */
+    *--stack = elf_info.entry; /* RIP */
+
+    /* Kernel context */
+    for (int j = 0; j < 15; j++) {
+        *--stack = 0;
+    }
+
+    proc->context.rsp = (uint64_t)stack;
+    proc->context.cs = 0x08;
+    proc->context.ss = 0x10;
+    proc->context.rflags = 0x202;
+
+    /* Set TSS rsp0 for this process */
+    tss_set_rsp0(proc->kernel_stack_top);
+
+    scheduler_add(proc);
+    return proc->pid;
 }
 
 /* Check sleeping processes */

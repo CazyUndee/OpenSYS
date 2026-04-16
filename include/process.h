@@ -6,6 +6,7 @@
 #define PROCESS_H
 
 #include <stdint.h>
+#include "vm.h"
 
 #define MAX_PROCESSES 64
 #define PROCESS_NAME_LEN 32
@@ -44,7 +45,7 @@ typedef struct process {
     uint64_t user_stack_top;
 
     /* Memory */
-    struct vm_space* vm;    /* Address space */
+vm_space_t* vm; /* Address space */
 
     /* Scheduling */
     uint64_t wake_time;
@@ -88,5 +89,11 @@ void process_sleep(uint64_t ms);
 
 /* Yield CPU */
 void process_yield(void);
+
+/* Create user process from ELF binary */
+pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size);
+
+/* Get current process's VM space */
+vm_space_t* process_current_vm(void);
 
 #endif

@@ -3,6 +3,7 @@
  */
 
 #include <stdint.h>
+#include "../include/user_bin.h"
 
 #define VGA_BUFFER 0xB8000
 #define VGA_COLOR 0x07
@@ -171,14 +172,16 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     process_init();
     puts(" Process manager initialized\n");
 
-    /* Create test processes */
-    typedef uint64_t pid_t;
-    typedef void (*proc_entry_t)(void*);
-    extern pid_t process_create(const char* name, proc_entry_t entry, void* arg);
-    process_create("test_a", test_proc_a, 0);
-    process_create("test_b", test_proc_b, 0);
-    
-    puts(" Test processes created\n");
+/* Create test processes */
+typedef uint64_t pid_t;
+typedef void (*proc_entry_t)(void*);
+extern pid_t process_create(const char* name, proc_entry_t entry, void* arg);
+extern pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size);
+process_create("test_a", test_proc_a, 0);
+process_create("test_b", test_proc_b, 0);
+process_create_user("init", user_bin_data, USER_BIN_SIZE);
+
+puts(" Test processes created\n");
 
     /* Enable interrupts */
     __asm__ volatile ("sti");

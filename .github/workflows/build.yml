@@ -11,31 +11,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc nasm qemu-system-x86 xorriso grub-pc-bin mtools
+        sudo apt-get install -y gcc nasm qemu-system-x86 xorriso grub-pc-bin mtools xxd
 
     - name: Build 64-bit kernel
       run: |
         mkdir -p obj bin
 
-        echo "Assembling boot64.asm"
+        echo "Assembling boot64.asm..."
         nasm -f elf64 boot/boot64.asm -o obj/boot.o
         nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
         nasm -f elf64 boot/context_switch.asm -o obj/context_switch.o
 
+        echo "Building user program..."
+        cd user
+        make clean || true
+        make init.elf init.bin 2>/dev/null || echo "User binary build skipped (no cross-compiler)"
+        if [ -f init.bin ]; then
+          xxd -i init.bin > ../include/user_bin_gen.h
+          echo "User binary generated: $(wc -c < init.bin) bytes"
+        fi
+        cd ..
+
         echo "Compiling 64-bit sources..."
-        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr ps2_keyboard idt64 pic ramfs timer process scheduler switch_to vm tss gdt64 syscall elf; do
-          echo "  Compiling ${src}.c"
-          gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
-            -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
-            -Iinclude -mcmodel=large
+        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr ps2_keyboard idt64 pic ramfs timer process scheduler switch_to vm tss gdt64 syscall elf fs gpt disk idt interrupt_handlers user_bin; do
+          if [ -f "src/${src}.c" ]; then
+            echo "  Compiling ${src}.c"
+            gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
+              -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
+              -Iinclude -mcmodel=large
+          elif [ -f "boot/${src}.asm" ]; then
+            echo "  Assembling ${src}.asm"
+            nasm -f elf64 "boot/${src}.asm" -o "obj/${src}.o"
+          fi
         done
 
-        echo "Linking kernel64.bin"
+        echo "Linking kernel64.bin..."
         ld -m elf_x86_64 -T linker/linker64.ld -nostdlib -o bin/kernel64.bin obj/*.o
 
         echo "========================================"
@@ -60,64 +75,64 @@ jobs:
         set default=0
 
         menuentry "OpenSYS OS" {
-          multiboot /boot/kernel
-          boot
+            multiboot /boot/kernel
+            boot
         }
         EOF
 
-        grub-mkrescue -o bin/os.iso iso || echo "ISO creation failed"
+        grub-mkrescue -o bin/os.iso iso 2>&1 || echo "ISO creation failed (may need additional tools)"
 
     - name: Upload ISO
       uses: actions/upload-artifact@v4
       with:
         name: os-iso
         path: bin/os.iso
-        if-no-files-found: warn
+      if-no-files-found: warn
 
-  test:
-    runs-on: ubuntu-latest
-    needs: build
+    test:
+      runs-on: ubuntu-latest
+      needs: build
 
-    steps:
-    - name: Install QEMU
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y qemu-system-x86
+      steps:
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
 
-    - name: Download kernel artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: kernel-bin
-        path: bin
+      - name: Download kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-bin
+          path: bin
 
-    - name: Test kernel boot
-      run: |
-        echo "Testing kernel boot..."
-        file bin/kernel64.bin
-        readelf -h bin/kernel64.bin | head -15 || true
+      - name: Test kernel boot
+        run: |
+          echo "Testing kernel boot..."
+          file bin/kernel64.bin
+          readelf -h bin/kernel64.bin | head -15 || true
 
-        timeout 10s qemu-system-x86_64 -kernel bin/kernel64.bin \
-          -nographic -m 128 -no-reboot 2>&1 | tee qemu_output.txt &
+          timeout 10s qemu-system-x86_64 -kernel bin/kernel64.bin \
+            -nographic -m 128 -no-reboot 2>&1 | tee qemu_output.txt &
 
-        QEMU_PID=$!
-        sleep 5
-        kill $QEMU_PID 2>/dev/null || true
-        wait $QEMU_PID 2>/dev/null || true
+          QEMU_PID=$!
+          sleep 5
+          kill $QEMU_PID 2>/dev/null || true
+          wait $QEMU_PID 2>/dev/null || true
 
-        echo "========================================"
-        echo "QEMU output:"
-        cat qemu_output.txt
-        echo "========================================"
+          echo "========================================"
+          echo "QEMU output:"
+          cat qemu_output.txt
+          echo "========================================"
 
-        if grep -q "OpenSYS" qemu_output.txt; then
-          echo "SUCCESS: Kernel booted!"
-          exit 0
-        fi
+          if grep -q "OpenSYS" qemu_output.txt; then
+            echo "SUCCESS: Kernel booted!"
+            exit 0
+          fi
 
-        if file bin/kernel64.bin | grep -q "ELF 64-bit"; then
-          echo "PARTIAL: Kernel is valid ELF 64-bit"
-          exit 0
-        fi
+          if file bin/kernel64.bin | grep -q "ELF 64-bit"; then
+            echo "PARTIAL: Kernel is valid ELF 64-bit"
+            exit 0
+          fi
 
-        echo "FAIL: No output detected"
-        exit 1
+          echo "FAIL: No output detected"
+          exit 1

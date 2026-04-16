@@ -13,7 +13,7 @@ CFLAGS = -m64 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno
 LDFLAGS = -m elf_x86_64 -T linker/linker64.ld -nostdlib
 NASMFLAGS = -f elf64
 KERNEL = kernel64
-SRCS = kernel64.c pmm64.c paging64.c kheap64.c fs.c gpt.c disk.c hid_keyboard.c shell.c vga.c io.c idt.c interrupt_handlers.c usb.c
+SRCS = kernel64.c pmm64.c paging64.c kheap64.c fs.c gpt.c disk.c hid_keyboard.c shell.c vga.c io.c idt.c interrupt_handlers.c usb.c process.c scheduler.c vm.c elf.c syscall.c idt64.c gdt64.c tss.c user_bin.c
 else
 # 32-bit build
 CROSS_PREFIX := $(shell which i686-elf-gcc 2>/dev/null || echo "")

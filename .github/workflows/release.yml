@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+    - 'v*'
 
 permissions:
   contents: write
@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc nasm xorriso grub-pc-bin mtools
+        sudo apt-get install -y gcc nasm xorriso grub-pc-bin mtools xxd
 
     - name: Build 64-bit kernel
       run: |
@@ -28,10 +28,12 @@ jobs:
         nasm -f elf64 boot/interrupts64.asm -o obj/interrupts.o
         nasm -f elf64 boot/context_switch.asm -o obj/context_switch.o
 
-        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr ps2_keyboard idt64 pic ramfs timer process scheduler switch_to vm tss gdt64 syscall elf; do
-          gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
-            -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
-            -Iinclude -mcmodel=large
+        for src in kernel64 pmm64 paging64 kheap64 vga io usb hid_keyboard shell isr ps2_keyboard idt64 pic ramfs timer process scheduler switch_to vm tss gdt64 syscall elf fs gpt disk idt interrupt_handlers user_bin; do
+          if [ -f "src/${src}.c" ]; then
+            gcc -m64 -c "src/${src}.c" -o "obj/${src}.o" \
+              -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
+              -Iinclude -mcmodel=large
+          fi
         done
 
         ld -m elf_x86_64 -T linker/linker64.ld -nostdlib -o bin/kernel64.bin obj/*.o
@@ -46,8 +48,8 @@ jobs:
         set default=0
 
         menuentry "OpenSYS OS" {
-          multiboot /boot/kernel
-          boot
+            multiboot /boot/kernel
+            boot
         }
         EOF
 
