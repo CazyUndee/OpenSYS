@@ -35,6 +35,9 @@ Thumbs.db
 *.log
 *.bak
 
+# Oh-My-OpenCode run-continuation sessions
+.omo/run-continuation/
+
 # Tags
 TAGS
 tags

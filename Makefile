@@ -23,16 +23,18 @@ CC = x86_64-elf-gcc
 LD = x86_64-elf-ld
 NASM = nasm
 OBJCOPY = x86_64-elf-objcopy
+BINDIR_ABS = /d/tools/x86_64-elf/bin
 
 # Flags
-CFLAGS = -m64 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude -mcmodel=large
+CFLAGS = -m64 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude -mcmodel=large -fno-asynchronous-unwind-tables -B /d/tools/x86_64-elf/bin/
+USER_CFLAGS = -m64 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -mcmodel=small -g0 -B /d/tools/x86_64-elf/bin/ -fno-dwarf2-cfi-asm
 LDFLAGS = -m elf_x86_64 -T linker/linker.ld -nostdlib
 NASMFLAGS = -f elf64
 
 # Targets
 KERNEL = plan0
 # Source files organized by directory
-KERNEL_SRCS = kernel/kernel.c kernel/sys.c kernel/elf.c kernel/state_graph.c kernel/intent_dispatcher.c kernel/intent_schema.c kernel/switch.c
+KERNEL_SRCS = kernel/kernel.c kernel/sys.c kernel/elf.c kernel/state_graph.c kernel/intent_dispatcher.c kernel/intent_schema.c kernel/switch.c kernel/kstring.c
 MEMORY_SRCS = memory/memory.c memory/kheap.c memory/paging.c
 FS_SRCS = fs/fs.c fs/vfs.c fs/ramfs.c
 ARCH_SRCS = arch/gdt.c arch/gdt_flush.asm arch/idt.c arch/tss.c arch/pic.c arch/timer.c arch/interrupt_handlers.c
@@ -176,7 +178,7 @@ check:
 
 # User space build
 user/init.o: user/init.c
-	$(CC) -m64 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -mcmodel=small -c -o $@ $<
+	$(CC) -m64 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -mcmodel=small -g0 -c -o $@ $<
 
 user/init.elf: user/init.o user/user.ld
 	$(LD) -T user/user.ld -nostdlib -o $@ $<

@@ -165,17 +165,17 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 			terminal_writestring(" PCID not supported (falling back to full TLB flushes)\n");
 		}
 
-		// Phase 5: Start Input listener
-		terminal_writestring("[BOOT] Phase 5: Starting Input System...\n");
-		
-		// Phase 6: Spawn Shell (CLI) and GUI Renderer as first two "Observer" processes
-		terminal_writestring("[BOOT] Phase 6: Starting UI Processes...\n");
-		
-		// Register observers
-		state_graph_add_observer(1, NULL);  // CLI process
-		state_graph_add_observer(2, NULL);  // GUI process
-		
-		terminal_writestring("[BOOT] Unified System Ready!\n\n");
+// Phase 5: Input System (deferred - needs input.h API implementation)
+// TODO: Once include/input.h API is implemented, spawn a user-mode input
+// listener process and register a real notify callback here. Currently PS/2
+// and USB HID keyboards work via their own drivers, but the abstract
+// input.h layer has no implementations in src/.
+// NOTE: state_graph_add_observer(NULL) registrations removed (they were dead code).
+
+// Phase 6: Spawn Shell (CLI) and GUI Renderer as first two "Observer" processes
+terminal_writestring("[BOOT] Phase 6: Starting UI Processes...\n");
+
+terminal_writestring("[BOOT] Unified System Ready!\n\n");
 		terminal_writestring("System is stable and running.\n");
 		terminal_writestring("Keyboard driver needs PS/2 hardware support.\n");
 	}

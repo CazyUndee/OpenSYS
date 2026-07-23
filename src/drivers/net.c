@@ -155,9 +155,58 @@ int net_drv_send(const void* data, uint16_t len) {
 }
 
 int net_drv_recv(void* buf, uint16_t len) {
-    (void)buf;(void)len;
-    /* Stub: would read from RX ring in a real driver */
-    return 0;
+    if (!rtl_io_base || !buf || len == 0) return 0;
+
+#define RTL_RX_BUF_SIZE 8192 /* 8KB ring + 16-byte header packets */
+
+    /* Check ISR for RX_OK (bit 0) */
+    uint16_t isr = inw_r(rtl_io_base + RTL_ISR);
+    if (!(isr & 1)) return 0; /* No packet available */
+
+    /* Read packet header from RX ring at current CAPR */
+    uint16_t capr = inw_r(rtl_io_base + RTL_CAPR) & 0x3FFC; /* Mask to 8KB, align to 4 */
+    uint32_t* rx_hdr = (uint32_t*)(rtl_rx_ring + capr);
+    uint32_t rx_status  = rx_hdr[0]; /* Status word */
+    uint32_t rx_len_raw = rx_hdr[1]; /* Length (includes 4-byte CRC) */
+
+    if (!(rx_status & 1)) return 0; /* Not a valid packet */
+
+    uint16_t pkt_len = rx_len_raw & 0x3FFF; /* Bits 13:0 = length */
+    if (pkt_len < 4) return 0; /* Too short */
+
+    /* Data starts at capr + 4 (after 4-byte status word) */
+    uint16_t data_offset = capr + 4;
+    uint16_t copy_len = pkt_len - 4; /* Exclude CRC */
+    if (copy_len > len) copy_len = len;
+
+    /* Copy packet data, handling ring buffer wrap-around */
+    uint8_t* dst = (uint8_t*)buf;
+    uint16_t remaining = copy_len;
+    uint16_t src_offset = data_offset;
+
+    while (remaining > 0) {
+        uint16_t chunk = remaining;
+        if (src_offset + chunk > RTL_RX_BUF_SIZE) {
+            chunk = RTL_RX_BUF_SIZE - src_offset;
+        }
+        for (uint16_t i = 0; i < chunk; i++) {
+            dst[i] = rtl_rx_ring[src_offset + i];
+        }
+        dst += chunk;
+        src_offset = (src_offset + chunk) % RTL_RX_BUF_SIZE;
+        remaining -= chunk;
+    }
+
+    /* Update CAPR: advance past this packet (packet = 4 header + pkt_len - 4 + 4 CRC) */
+    uint16_t next_capr = capr + pkt_len + 4;
+    if (next_capr >= RTL_RX_BUF_SIZE) next_capr -= RTL_RX_BUF_SIZE;
+    outw_r(rtl_io_base + RTL_CAPR, next_capr);
+
+    /* Clear RX_OK bit in ISR */
+    outw_r(rtl_io_base + RTL_ISR, isr | 1);
+
+    return copy_len;
+#undef RTL_RX_BUF_SIZE
 }
 
 /* Stack init wrapper */

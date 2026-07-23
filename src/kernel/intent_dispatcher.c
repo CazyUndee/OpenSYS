@@ -355,9 +355,11 @@ error_t intent_dispatch(intent_t* intent) {
         return ERR_UNAUTHORIZED;
     }
     
-    // 4. Journaling (write-ahead log)
-    // TODO: Implement MFT journaling
-    // mft_journal_append(intent);
+// 4. Journaling (write-ahead log) — deferred; intent is audited at step 6
+// TODO: Implement MFT journaling for pre-execution crash recovery.
+//   See also: include/input.h (unimplemented input.h API layer).
+//   Current behavior: intents are applied immediately, then audit-logged.
+//   Caller must be aware that a crash will lose intents since step 5.
     
     // 5. Apply to state graph
     error_t result = apply_intent_to_graph(intent);

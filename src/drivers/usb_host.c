@@ -731,10 +731,12 @@ int usb_enumerate(void) {
         result = poll_td_complete(td_status, 500000);
         dummy_qh->link = old_link;
 
-        /* Parse config descriptor to find HID interface & endpoints */
-        uint8_t  dev_class = 0;
-        uint8_t  ep_in_addr = 0x81;   /* default EP1 IN */
-        uint8_t  ep_out_addr = 0x01;  /* default EP1 OUT */
+/* Parse config descriptor to find HID interface & endpoints */
+uint8_t dev_class = 0;
+uint8_t dev_subclass = 0;
+uint8_t dev_protocol = 0;
+uint8_t ep_in_addr = 0x81; /* default EP1 IN */
+uint8_t ep_out_addr = 0x01; /* default EP1 OUT */
 
         if (result >= 0) {
             uint8_t* ptr = data_buf;
@@ -744,13 +746,19 @@ int usb_enumerate(void) {
                 uint8_t desc_type = ptr[offset + 1];
                 if (desc_len == 0) break;
 
-                if (desc_type == USB_DESC_INTERFACE && desc_len >= 9) {
-                    usb_interface_desc_t* iface = (usb_interface_desc_t*)(ptr + offset);
-                    dev_class = iface->iface_class;
-                    terminal_writestring("[USB] Interface class: 0x");
-                    terminal_put_hex(dev_class);
-                    terminal_writestring("\n");
-                }
+      if (desc_type == USB_DESC_INTERFACE && desc_len >= 9) {
+        usb_interface_desc_t* iface = (usb_interface_desc_t*)(ptr + offset);
+        dev_class = iface->iface_class;
+        dev_subclass = iface->iface_subclass;
+        dev_protocol = iface->iface_protocol;
+        terminal_writestring("[USB] Interface class: 0x");
+        terminal_put_hex(dev_class);
+        terminal_writestring(" subclass: 0x");
+        terminal_put_hex(dev_subclass);
+        terminal_writestring(" protocol: 0x");
+        terminal_put_hex(dev_protocol);
+        terminal_writestring("\n");
+      }
 
                 if (desc_type == USB_DESC_ENDPOINT && desc_len >= 7) {
                     usb_endpoint_desc_t* ep = (usb_endpoint_desc_t*)(ptr + offset);
@@ -784,9 +792,9 @@ int usb_enumerate(void) {
             devices[device_count].interface      = 0;
             devices[device_count].vendor_id      = desc->vendor_id;
             devices[device_count].product_id     = desc->product_id;
-            devices[device_count].dev_class      = dev_class;
-            devices[device_count].dev_subclass   = 0;
-            devices[device_count].dev_protocol   = 0;
+  devices[device_count].dev_class = dev_class;
+  devices[device_count].dev_subclass = dev_subclass;
+  devices[device_count].dev_protocol = dev_protocol;
             devices[device_count].max_packet_size = max_pkt;
             devices[device_count].endpoints      = 2;
             devices[device_count].endpoint_in    = ep_in_addr;

@@ -133,11 +133,14 @@ int init_pcid_system_c(void) {
     return -1;  /* PCID not supported */
 }
 
-// Legacy compatibility functions
+// Legacy compatibility shims.
+// These thin wrappers bridge the old switch_* API to the current scheduler API.
+// Caller: boot/interrupts.asm uses scheduler_timer_tick(); schedule() is a stable
+// alias kept for ABI compatibility.  Do NOT remove without updating assembly.
 void schedule(void) {
-    switch_schedule();
+  switch_schedule();
 }
 
 void scheduler_timer_tick(void) {
-    switch_timer_tick();
+  switch_timer_tick();
 }

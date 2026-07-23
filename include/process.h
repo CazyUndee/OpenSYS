@@ -97,8 +97,9 @@ void process_sleep(uint64_t ms);
 /* Yield CPU */
 void process_yield(void);
 
-/* Create user process from ELF binary */
-pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size);
+/* Create user process from ELF binary with argc/argv on the user stack */
+pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size,
+                           int argc, const char* const* argv);
 
 /* Get process by index */
 process_t* process_get_by_index(int i);

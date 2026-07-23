@@ -11,6 +11,9 @@
 #include "vm.h"
 #include "pmm.h"
 #include "vga.h"
+#include "vfs.h"
+#include "kheap.h"
+#include "kstring.h"
 
 extern void syscall_entry(void);
 
@@ -62,7 +65,14 @@ static int sys_open(const char* name) {
 }
 
 static int sys_close(int fd) {
-    (void)fd;
+    fd_table_t* table = 0;
+    process_t* proc = process_current();
+    if (!proc) return -1;
+    table = proc->fd_table;
+    if (!table) return -1;
+    if (fd < 0 || fd >= VFS_MAX_FDS) return -1;
+    if (!table->fds[fd]) return -1;
+    if (fd_table_close(table, fd) < 0) return -1;
     return 0;
 }
 
@@ -86,12 +96,92 @@ static int sys_fork(void) {
 }
 
 static int sys_exec(const char* path) {
-    (void)path;
-    return -1;
+	if (!path) return -1;
+	process_t* proc = process_current();
+	if (!proc) return -1;
+
+	/* Parse argv from path (whitespace-split) */
+	const char* argv[32];
+	int argc = 0;
+
+	const char* p = path;
+	while (*p && argc < 32) {
+		/* skip leading whitespace */
+		while (*p == ' ' || *p == '\t') p++;
+		if (!*p) break;
+		argv[argc++] = p;
+		/* skip to next whitespace */
+		while (*p && *p != ' ' && *p != '\t') p++;
+	}
+	/* Null-terminate the last argument so k_strlen works later */
+	if (argc > 0) {
+		/* We need a writable copy of each argv string for the user stack.
+		 * We'll let process_create_user() copy them; for now just hand the pointers.
+		 * The actual strings live inside the caller's `path` buffer, so we must not
+		 * free that here -- it's the kernel-space copy already in ramfs.
+		 */
+	}
+
+	/* Look up file in ramfs (use first token as the path) */
+	char path_buf[256];
+	int i;
+	for (i = 0; i < 255 && path[i] && path[i] != ' ' && path[i] != '\t'; i++)
+		path_buf[i] = path[i];
+	path_buf[i] = '\0';
+
+	int fd = ramfs_find(path_buf);
+	if (fd < 0) return -1;
+
+	uint32_t file_size = ramfs_size(fd);
+	if (file_size == 0) return -1;
+
+	/* Read the ELF binary */
+	uint8_t* elf_data = (uint8_t*)kmalloc(file_size);
+	if (!elf_data) return -1;
+
+	int read_bytes = ramfs_read(fd, elf_data, file_size, 0);
+	if (read_bytes < 0 || (uint32_t)read_bytes != file_size) {
+		kfree(elf_data);
+		return -1;
+	}
+
+	/* Load ELF and replace current process */
+	pid_t new_pid = process_create_user(proc->name, elf_data, file_size, argc, argv);
+	kfree(elf_data);
+
+	if (!new_pid) return -1;
+
+	/* Terminate current process; scheduler switches to the new one */
+	process_exit(0);
+	return 0;
 }
 
 static int sys_wait(int* status) {
-    (void)status;
+    process_t* parent = process_current();
+    if (!parent) return -1;
+
+    /* Find any zombie child process */
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        process_t* child = process_get_by_index(i);
+        if (!child) continue;
+        if (child->state != PROC_STATE_ZOMBIE) continue;
+        if (child == parent) continue;
+
+        pid_t child_pid = child->pid;
+
+        /* Write exit status if requested */
+        if (status) {
+            *status = child->exit_code;
+        }
+
+        /* Free the zombie slot */
+        child->state = PROC_STATE_UNUSED;
+        child->pid = 0;
+
+        return child_pid;
+    }
+
+    /* No zombie children — yield and retry */
     process_yield();
     return -1;
 }

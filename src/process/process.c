@@ -222,7 +222,8 @@ vm_space_t* process_current_vm(void) {
     return proc ? proc->vm : 0;
 }
 
-pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size) {
+pid_t process_create_user(const char* name, const void* elf_data, size_t elf_size,
+                           int argc, const char* const* argv) {
     process_t* proc = alloc_process();
     if (!proc) return 0;
 
@@ -281,15 +282,66 @@ pid_t process_create_user(const char* name, const void* elf_data, size_t elf_siz
     proc->exit_code = 0;
     proc->fd_table = 0;
 
-    /* Setup kernel stack for user mode entry */
-    uint64_t* stack = (uint64_t*)proc->kernel_stack_top;
+/* Build argc/argv on the user stack.
+ *
+ * Stack layout (grows down from top of allocated 16 pages):
+ *   [high] argc
+ *          argv[0]
+ *          argv[1]
+ *          ...
+ *          argv[argc-1]
+ *          NULL
+ *          envp[0] = NULL
+ *          <aligned padding>
+ *          argv[0] string bytes
+ *          argv[1] string bytes
+ *          ...
+ *          argv[argc-1] string bytes
+ *   [low]  ...
+ */
+uint64_t ustack = user_stack;
 
-    /* User context for iretq */
-    *--stack = 0x23;           /* SS (user data) */
-    *--stack = user_stack;     /* RSP */
-    *--stack = 0x202;          /* RFLAGS */
-    *--stack = 0x1B;           /* CS (user code) */
-    *--stack = elf_info.entry; /* RIP */
+if (argc > 32) argc = 32;
+
+/* String region grows down from ustack - 1 */
+uint64_t str_top = ustack;
+for (i = 0; i < argc; i++) {
+	int len = k_strlen(argv[i]);
+	str_top -= len + 1; /* +1 for NUL */
+	k_memcpy((void*)str_top, argv[i], len + 1);
+}
+
+/* argv pointer region grows down from str_top */
+uint64_t ptr_top = str_top;
+ptr_top -= (argc + 1) * sizeof(uint64_t); /* argv[0..argc-1] + NULL */
+
+uint64_t* argv_ptrs = (uint64_t*)ptr_top;
+argv_ptrs[argc] = 0; /* argv terminator */
+
+for (i = argc - 1; i >= 0; i--) {
+	argv_ptrs[i] = str_top;
+	str_top += k_strlen(argv[i]) + 1;
+}
+
+/* Push argc */
+uint64_t argc_val = (uint64_t)argc;
+ptr_top -= sizeof(uint64_t);
+*(uint64_t*)ptr_top = argc_val;
+
+/* Final RSP: 16-byte aligned (SysV ABI). iretq will pop RDX=argc, RSI=argv, then RIP.
+ * We set RSP to ptr_top.
+ */
+uint64_t final_rsp = ptr_top;
+
+/* Setup kernel stack for user mode entry */
+uint64_t* stack = (uint64_t*)proc->kernel_stack_top;
+
+/* User context for iretq (these are the iretq pops, bottom-up in memory) */
+*--stack = 0x23;        /* SS (user data) */
+*--stack = final_rsp;   /* RSP */
+*--stack = 0x202;       /* RFLAGS */
+*--stack = 0x1B;        /* CS (user code) */
+*--stack = elf_info.entry; /* RIP */
 
     /* Kernel context */
     for (int j = 0; j < 15; j++) {

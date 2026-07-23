@@ -26,18 +26,33 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Disk operations passed to GPT */
+static disk_ops_t part_disk_ops = {0};
+
+static int part_disk_read(uint64_t lba, uint32_t count, void* buffer) {
+  return disk_read((uint32_t)lba, count, buffer);
+}
+
+static int part_disk_write(uint64_t lba, uint32_t count, const void* buffer) {
+  return disk_write((uint32_t)lba, count, buffer);
+}
+
 // Initialize Part system
 void part_init(void) {
-    terminal_writestring("[PART] Initializing Partition Management...\n");
-    
-    // Initialize disk driver
-    if (disk_init() < 0) {
-        terminal_writestring("  ERROR: Failed to initialize disk\n");
-        return;
-    }
-    
-    // Initialize GPT
-    if (gpt_init() < 0) {
+  terminal_writestring("[PART] Initializing Partition Management...\n");
+
+  // Initialize disk driver
+  if (disk_init() < 0) {
+    terminal_writestring(" ERROR: Failed to initialize disk\n");
+    return;
+  }
+
+  /* Wire disk ops for GPT */
+  part_disk_ops.read  = part_disk_read;
+  part_disk_ops.write = part_disk_write;
+
+  // Initialize GPT
+  if (gpt_init(&part_disk_ops) < 0) {
         terminal_writestring("  ERROR: Failed to initialize GPT\n");
         return;
     }

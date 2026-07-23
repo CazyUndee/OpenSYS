@@ -33,6 +33,9 @@
 #include "timer.h"
 #include "io.h"
 #include "kstring.h"
+#include "net.h"
+#include "ip.h"
+#include "icmp.h"
 
 #define MAX_CMD_LEN 256
 
@@ -718,7 +721,7 @@ static void show_help(void) {
     terminal_writestring_nl("    cd <path>         - change directory (alias)");
     terminal_writestring_nl("    pwd               - print working directory (alias)");
     terminal_writestring_nl("    edit <name>       - simple text editor");
-    terminal_writestring_nl("    ping <addr>       - ping an address (stub)");
+terminal_writestring_nl(" ping <addr> - ping an address");
     terminal_writestring_nl("    uptime            - show system uptime");
     terminal_writestring_nl("    reboot            - reboot the system");
     terminal_writestring_nl("    shutdown          - shutdown the system");
@@ -864,9 +867,67 @@ static void cmd_env(void) {
 }
 
 static void cmd_ping(const char* addr) {
-    terminal_writestring("  Pinging ");
-    terminal_writestring(addr ? addr : "127.0.0.1");
-    terminal_writestring_nl(" (network stack not yet fully implemented)");
+  if (!addr || !*addr) {
+    terminal_writestring_nl(" Usage: ping <ip-address>");
+    return;
+  }
+
+  /* Parse d.d.d.d into ip_addr_t */
+  ip_addr_t dst = {0};
+  int octet = 0, digit_idx = 0;
+  char digits[4];
+  int d = 0;
+  for (int i = 0; addr[i] && octet < 4; i++) {
+    if (addr[i] >= '0' && addr[i] <= '9') {
+      if (digit_idx < 3) digits[digit_idx++] = addr[i];
+    } else if (addr[i] == '.' && digit_idx > 0) {
+      int val = 0;
+      for (int j = 0; j < digit_idx; j++) val = val * 10 + (digits[j] - '0');
+      dst.addr[octet++] = (uint8_t)val;
+      digit_idx = 0;
+    }
+  }
+  if (digit_idx > 0 && octet < 4) {
+    int val = 0;
+    for (int j = 0; j < digit_idx; j++) val = val * 10 + (digits[j] - '0');
+    dst.addr[octet++] = (uint8_t)val;
+  }
+
+  if (octet != 4) {
+    terminal_writestring_nl(" Usage: ping <ip-address>  e.g. ping 192.168.1.1");
+    return;
+  }
+
+  terminal_writestring(" Pinging ");
+  terminal_writestring(addr);
+  terminal_writestring_nl("...");
+
+  icmp_ping_start(1);
+  if (icmp_send_echo_request(dst, 0xABCD, 1) < 0) {
+    terminal_writestring_nl(" Failed to send echo request");
+    return;
+  }
+
+  /* Poll for reply (~2 seconds) */
+  uint32_t start = timer_get_ms();
+  while (timer_get_ms() - start < 2000) {
+    uint8_t buf[256];
+    int pkt_len = net_recv_packet(buf, sizeof(buf));
+    if (pkt_len > 0) {
+      net_handle_packet(buf, (uint16_t)pkt_len);
+      if (icmp_ping_has_reply()) {
+        terminal_writestring(" Reply from ");
+        terminal_writestring(addr);
+        terminal_writestring_nl(": time ok");
+        return;
+      }
+    }
+    for (volatile int i = 0; i < 10000; i++);
+  }
+
+  terminal_writestring(" No reply from ");
+  terminal_writestring(addr);
+  terminal_writestring_nl(" (timeout)");
 }
 
 static void cmd_clear(void) {

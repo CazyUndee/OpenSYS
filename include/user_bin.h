@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define USER_BIN_SIZE 740
+#define USER_BIN_SIZE 732
 
 extern const unsigned char user_bin_data[];
 

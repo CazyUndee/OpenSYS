@@ -27,9 +27,52 @@ static uint64_t current_time = 0;
 #define MFT_BOOT         7  /* $Boot */
 #define MFT_FIRST_USER   16 /* First user file */
 
-/* Helper: get current time (placeholder) */
+/* Helper: get current time from RTC (real hardware clock) */
+#include "rtc.h"
+#include "timer.h"
+
+#define SECONDS_FROM_1970_TO_2000 946684800ULL
+
+static int rtc_time_ready = 0;
+
+static uint64_t rtc_to_unix(const rtc_time_t* t) {
+    /* Days per month (non-leap) */
+    static const uint8_t mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    int full_year = (int)t->year + (int)t->century * 100;
+    uint64_t days = 0;
+
+    /* Years from 1970 to start of this year */
+    for (int yr = 1970; yr < full_year; yr++) {
+        days += 365;
+        if ((yr % 4 == 0 && yr % 100 != 0) || (yr % 400 == 0)) days++;
+    }
+
+    /* Months this year */
+    for (int m = 0; m < (int)t->month - 1 && m < 12; m++) {
+        days += mdays[m];
+    }
+    /* Leap day */
+    if (t->month > 2 && ((full_year % 4 == 0 && full_year % 100 != 0) || (full_year % 400 == 0))) {
+        days++;
+    }
+
+    days += (uint64_t)t->day - 1;
+
+    return SECONDS_FROM_1970_TO_2000 + days * 86400ULL
+         + (uint64_t)t->hour * 3600ULL
+         + (uint64_t)t->minute * 60ULL
+         + (uint64_t)t->second;
+}
+
 static uint64_t get_time(void) {
-    return current_time++;
+    if (!rtc_time_ready) {
+        rtc_init();
+        rtc_time_ready = 1;
+    }
+    rtc_time_t t;
+    rtc_read_time(&t);
+    return rtc_to_unix(&t);
 }
 
 /* Helper: read cluster */

@@ -189,5 +189,17 @@ uint8_t hid_keyboard_get_modifiers(void) {
 /* Set LEDs (requires SET_REPORT control transfer) */
 void hid_keyboard_set_leds(uint8_t leds) {
     keyboard_leds = leds;
-    /* Would send SET_REPORT to keyboard */
+    if (!keyboard_dev) return;
+
+    /* HID Output Report SET_REPORT (Host-to-device, Class, Interface) */
+    usb_request_t req;
+    req.request_type = 0x21;               /* Direction=H2D, Type=Class, Recip=Interface */
+    req.request     = HID_REQ_SET_REPORT;  /* 0x09 */
+    req.value       = 0x0200;              /* wValue: Report Type=Output(0x02), Report ID=0 */
+    req.index       = keyboard_dev->interface; /* Interface number */
+    req.length      = 1;
+
+    /* LED bit layout (USB HID spec): bit0=NumLock, bit1=ScrollLock, bit2=CapsLock */
+    uint8_t data = leds & 0x07;
+    usb_control_transfer(keyboard_dev, &req, &data, 1);
 }

@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define PROGRAMS_DATA_SIZE 740
+#define PROGRAMS_SIZE 732
 
 extern const unsigned char programs_data[];
 
