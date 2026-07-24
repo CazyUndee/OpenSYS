@@ -3,7 +3,7 @@ import pycdlib, os, struct
 osdir = r"C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os"
 bin_dir = os.path.join(osdir, "bin")
 boot_img_path = os.path.join(bin_dir, "cd-core.img")
-kernel_path = os.path.join(bin_dir, "plan0.bin")
+kernel_path = os.path.join(bin_dir, "kernel0.bin")
 grub_cfg_path = os.path.join(osdir, "grub.cfg")
 grub_mods_dir = os.path.join(osdir, ".", "usr", "lib", "grub", "i386-pc")
 boot_hybrid_path = os.path.join(osdir, ".", "usr", "lib", "grub", "i386-pc", "boot_hybrid.img")

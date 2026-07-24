@@ -16,7 +16,7 @@ gcc -m64 -c /os/src/memory/memory.c -o /os/obj/memory/memory.o \
     -I/os/include -mcmodel=large -g -Wno-unused-variable -Wno-unused-parameter
 
 echo "=== Linking kernel ==="
-ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/plan0.bin \
+ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/kernel0.bin \
     /os/obj/boot.o \
     /os/obj/interrupts.o \
     /os/obj/context_switch.o \
@@ -31,13 +31,13 @@ ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/plan0.bin \
     /os/obj/ui/*.o
 
 echo "=== Checking kernel ==="
-ls -la /os/bin/plan0.bin
+ls -la /os/bin/kernel0.bin
 echo "=== Kernel size check ==="
-stat --format=%s /os/bin/plan0.bin
+stat --format=%s /os/bin/kernel0.bin
 
 echo "=== Building ISO ==="
 mkdir -p /os/iso/boot/grub
-cp /os/bin/plan0.bin /os/iso/boot/kernel
+cp /os/bin/kernel0.bin /os/iso/boot/kernel
 cp /os/grub.cfg /os/iso/boot/grub/grub.cfg
 grub-mkrescue -o /os/bin/os-docker.iso /os/iso 2>/dev/null
 echo "=== ISO created ==="

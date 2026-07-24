@@ -8,7 +8,7 @@ Then also build a proper ISO with GRUB by patching cdboot.img.
 import os, struct
 
 GRUB_DIR = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\usr\lib\grub\i386-pc'
-KERNEL = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\plan0.bin'
+KERNEL = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\kernel0.bin'
 GRUB_CFG = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\grub.cfg'
 OUT_DIR = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin'
 

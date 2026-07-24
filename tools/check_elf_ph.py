@@ -1,7 +1,7 @@
 import struct, os
 
 BASE = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os'
-with open(os.path.join(BASE, 'bin', 'plan0.bin'), 'rb') as f:
+with open(os.path.join(BASE, 'bin', 'kernel0.bin'), 'rb') as f:
     data = f.read()
 
 # Parse ELF64 header

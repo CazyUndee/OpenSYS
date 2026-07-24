@@ -6,7 +6,7 @@ apt-get update -qq && apt-get install -y -qq nasm gcc xorriso grub-pc-bin grub-c
 
 echo "=== Cleaning old kernel objects ==="
 rm -f /os/obj/boot.o /os/obj/interrupts.o /os/obj/context_switch.o /os/obj/syscall_asm.o /os/obj/switch_to_pcid.o
-rm -f /os/bin/plan0.bin /os/bin/os-docker.iso
+rm -f /os/bin/kernel0.bin /os/bin/os-docker.iso
 rm -rf /os/iso
 
 echo "=== Compiling boot.asm ==="
@@ -70,7 +70,7 @@ compile_c /os/src/ui/ui_command.c                /os/obj/ui/ui_command.o
 compile_c /os/src/ui/ui_state.c                  /os/obj/ui/ui_state.o
 
 echo "=== Linking kernel ==="
-ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/plan0.bin \
+ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/kernel0.bin \
     /os/obj/boot.o \
     /os/obj/interrupts.o /os/obj/context_switch.o /os/obj/syscall_asm.o /os/obj/switch_to_pcid.o \
     /os/obj/kernel/*.o \
@@ -82,12 +82,12 @@ ld -m elf_x86_64 -T /os/linker/linker.ld -nostdlib -o /os/bin/plan0.bin \
     /os/obj/ui/*.o 2>&1
 
 echo "=== Checking kernel ==="
-ls -la /os/bin/plan0.bin
-stat --format=%s /os/bin/plan0.bin
+ls -la /os/bin/kernel0.bin
+stat --format=%s /os/bin/kernel0.bin
 
 echo "=== Building ISO ==="
 mkdir -p /os/iso/boot/grub
-cp /os/bin/plan0.bin /os/iso/boot/kernel
+cp /os/bin/kernel0.bin /os/iso/boot/kernel
 cp /os/grub.cfg /os/iso/boot/grub/grub.cfg
 grub-mkrescue -o /os/bin/os-docker.iso /os/iso 2>/dev/null
 echo "=== ISO created ==="

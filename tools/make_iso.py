@@ -2,7 +2,7 @@
 """Create a minimal bootable ISO with GRUB for testing."""
 import os, sys, shutil
 
-kernel_bin = sys.argv[1] if len(sys.argv) > 1 else "bin/plan0.bin"
+kernel_bin = sys.argv[1] if len(sys.argv) > 1 else "bin/kernel0.bin"
 output_iso = sys.argv[2] if len(sys.argv) > 2 else "bin/os.iso"
 iso_dir = "iso_build"
 

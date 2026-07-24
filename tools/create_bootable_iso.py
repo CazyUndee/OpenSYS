@@ -14,7 +14,7 @@ import pycdlib, os, struct
 BASE = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os'
 GRUB_DIR = os.path.join(BASE, 'usr', 'lib', 'grub', 'i386-pc')
 BIN_DIR = os.path.join(BASE, 'bin')
-KERNEL = os.path.join(BIN_DIR, 'plan0.bin')
+KERNEL = os.path.join(BIN_DIR, 'kernel0.bin')
 GRUB_CFG = os.path.join(BASE, 'grub.cfg')
 OUTPUT = os.path.join(BIN_DIR, 'os.iso')
 CD_SECTOR = 2048

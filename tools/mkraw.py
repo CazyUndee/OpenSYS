@@ -8,7 +8,7 @@ file_off = 0x1000
 file_sz = 0x23e00
 mem_sz = 0xf8df0
 
-with open(f'{proj}/bin/plan0.bin', 'rb') as f:
+with open(f'{proj}/bin/kernel0.bin', 'rb') as f:
     elf = f.read()
 
 load_data = elf[file_off:file_off + file_sz]
@@ -30,6 +30,6 @@ ck = struct.unpack_from('<I', raw, 8)[0]
 total = (magic + flags + ck) & 0xFFFFFFFF
 print(f'Checksum check: 0x{magic:08X} + 0x{flags:08X} + 0x{ck:08X} = 0x{total:08X} {"OK" if total == 0 else "FAIL"}')
 
-with open(f'{proj}/bin/plan0.raw', 'wb') as f:
+with open(f'{proj}/bin/kernel0.raw', 'wb') as f:
     f.write(raw)
 print('Written OK')

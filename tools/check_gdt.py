@@ -47,7 +47,7 @@ else:
 # But lgdt reads: 2 bytes limit, 4/8 bytes base (depending on mode)
 
 # Let's check the .rodata section of the linked kernel
-with open(os.path.join(BASE, 'bin', 'plan0.bin'), 'rb') as f:
+with open(os.path.join(BASE, 'bin', 'kernel0.bin'), 'rb') as f:
     kernel = f.read()
 
 print("\nSearching kernel binary...")

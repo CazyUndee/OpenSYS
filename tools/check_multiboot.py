@@ -1,9 +1,9 @@
 """
-Check if plan0.bin has a valid Multiboot1 header and analyze its ELF structure.
+Check if kernel0.bin has a valid Multiboot1 header and analyze its ELF structure.
 """
 import struct
 
-kernel = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\plan0.bin'
+kernel = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\kernel0.bin'
 with open(kernel, 'rb') as f:
     data = f.read()
 

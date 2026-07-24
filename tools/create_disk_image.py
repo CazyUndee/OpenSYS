@@ -7,7 +7,7 @@ import os, struct, shutil
 
 OUTPUT = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\os_disk.img'
 GRUB_DIR = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\usr\lib\grub\i386-pc'
-KERNEL = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\plan0.bin'
+KERNEL = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\kernel0.bin'
 GRUB_CFG = r'C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\grub.cfg'
 
 # Read GRUB boot files
