@@ -42,12 +42,12 @@ jobs:
           done
         done
 
-        ld -m elf_x86_64 -T linker/linker.ld -nostdlib -o bin/plan0.bin obj/boot.o obj/interrupts.o obj/context_switch.o obj/syscall.o obj/**/*.o
+        ld -m elf_x86_64 -T linker/linker.ld -nostdlib -o bin/kernel0.bin obj/boot.o obj/interrupts.o obj/context_switch.o obj/syscall.o obj/**/*.o
 
     - name: Create bootable ISO
       run: |
         mkdir -p iso/boot/grub
-        cp bin/plan0.bin iso/boot/kernel
+        cp bin/kernel0.bin iso/boot/kernel
         cat > iso/boot/grub/grub.cfg << 'EOF'
         set timeout=5
         set default=0
@@ -56,15 +56,15 @@ jobs:
             boot
         }
         EOF
-        grub-mkrescue -o bin/plan0-${{ github.event.inputs.tag }}.iso iso
+        grub-mkrescue -o bin/kernel0-${{ github.event.inputs.tag }}.iso iso
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.event.inputs.tag }}
-        files: |
-          bin/plan0-${{ github.event.inputs.tag }}.iso
-          bin/plan0.bin
+files: |
+    bin/kernel0-${{ github.event.inputs.tag }}.iso
+    bin/kernel0.bin
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

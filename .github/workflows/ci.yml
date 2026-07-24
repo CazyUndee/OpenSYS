@@ -103,23 +103,23 @@ jobs:
           nasm -f elf64 boot/switch_to_pcid.asm -o obj/switch_to_pcid.o
 
       - name: Link kernel
-        run: ld -m elf_x86_64 -T linker/linker.ld -nostdlib -o bin/plan0.bin obj/boot.o obj/interrupts.o obj/context_switch.o obj/syscall_asm.o obj/switch_to_pcid.o obj/**/*.o
+        run: ld -m elf_x86_64 -T linker/linker.ld -nostdlib -o bin/kernel0.bin obj/boot.o obj/interrupts.o obj/context_switch.o obj/syscall_asm.o obj/switch_to_pcid.o obj/**/*.o
 
       - name: Show kernel
         run: |
-          ls -la bin/plan0.bin
-          file bin/plan0.bin
+ls -la bin/kernel0.bin
+file bin/kernel0.bin
 
       - name: Upload kernel
         uses: actions/upload-artifact@v4
         with:
           name: kernel-bin
-          path: bin/plan0.bin
+          path: bin/kernel0.bin
 
       - name: Create ISO
         run: |
           mkdir -p iso/boot/grub
-          cp bin/plan0.bin iso/boot/kernel
+          cp bin/kernel0.bin iso/boot/kernel
           cat > iso/boot/grub/grub.cfg << 'EOFGRUB'
           set timeout=0
           set default=0
@@ -187,14 +187,14 @@ jobs:
 
       - name: Check Makefile
         run: |
-          grep -q "KERNEL = plan0" Makefile || exit 1
+          grep -q "KERNEL = kernel0" Makefile || exit 1
           grep -q "BOOTDIR = boot" Makefile || exit 1
           grep -q "linker/linker.ld" Makefile || exit 1
 
       - name: Basic boot test
         run: |
-          timeout 10s qemu-system-x86_64 -kernel bin/plan0.bin -display none -serial stdio -m 128M 2>&1 | tee boot_test.log || true
-          grep -qi "plan.0\|plan0" boot_test.log && echo "✅ Branding detected" || echo "? Branding not detected (informational)"
+timeout 10s qemu-system-x86_64 -kernel bin/kernel0.bin -display none -serial stdio -m 128M 2>&1 | tee boot_test.log || true
+grep -qi "plan.0\|plan0\|kernel0" boot_test.log && echo "✅ Branding detected" || echo "? Branding not detected (informational)"
 
   release:
     name: Release

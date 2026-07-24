@@ -32,7 +32,7 @@ LDFLAGS = -m elf_x86_64 -T linker/linker.ld -nostdlib
 NASMFLAGS = -f elf64
 
 # Targets
-KERNEL = plan0
+KERNEL = kernel0
 # Source files organized by directory
 KERNEL_SRCS = kernel/kernel.c kernel/sys.c kernel/elf.c kernel/state_graph.c kernel/intent_dispatcher.c kernel/intent_schema.c kernel/switch.c kernel/kstring.c
 MEMORY_SRCS = memory/memory.c memory/kheap.c memory/paging.c
