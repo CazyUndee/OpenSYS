@@ -62,9 +62,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.event.inputs.tag }}
-files: |
-    bin/kernel0-${{ github.event.inputs.tag }}.iso
-    bin/kernel0.bin
+    files: |
+      bin/kernel0-${{ github.event.inputs.tag }}.iso
+      bin/kernel0.bin
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
