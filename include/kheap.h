@@ -43,6 +43,9 @@ void kfree(void* ptr);
 
 // Heap debugging
 void kheap_dump(void);
-void kheap_validate(void);
+
+// Walk the block list, verify magic numbers and structural integrity.
+// Returns the number of corruptions found (0 = healthy heap).
+int kheap_validate(void);
 
 #endif // KHEAP_H

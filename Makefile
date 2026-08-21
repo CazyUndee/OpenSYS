@@ -23,11 +23,11 @@ CC = x86_64-elf-gcc
 LD = x86_64-elf-ld
 NASM = nasm
 OBJCOPY = x86_64-elf-objcopy
-BINDIR_ABS = /d/tools/x86_64-elf/bin
+BINDIR_ABS = /c/Users/roone.DESKTOP-QK3UG2M/x86_64-elf/bin
 
 # Flags
-CFLAGS = -m64 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude -mcmodel=large -fno-asynchronous-unwind-tables -B /d/tools/x86_64-elf/bin/
-USER_CFLAGS = -m64 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -mcmodel=small -g0 -B /d/tools/x86_64-elf/bin/ -fno-dwarf2-cfi-asm
+CFLAGS = -m64 -ffreestanding -O0 -g -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin -Iinclude -mcmodel=large -fno-asynchronous-unwind-tables -B $(BINDIR_ABS)/
+USER_CFLAGS = -m64 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -mcmodel=small -g0 -B $(BINDIR_ABS)/ -fno-dwarf2-cfi-asm
 LDFLAGS = -m elf_x86_64 -T linker/linker.ld -nostdlib
 NASMFLAGS = -f elf64
 
@@ -36,12 +36,12 @@ KERNEL = kernel0
 # Source files organized by directory
 KERNEL_SRCS = kernel/kernel.c kernel/sys.c kernel/elf.c kernel/state_graph.c kernel/intent_dispatcher.c kernel/intent_schema.c kernel/switch.c kernel/kstring.c
 MEMORY_SRCS = memory/memory.c memory/kheap.c memory/paging.c
-FS_SRCS = fs/fs.c fs/vfs.c fs/ramfs.c
+FS_SRCS = fs/fs.c fs/vfs.c fs/ramfs.c fs/path.c fs/vfile.c
 ARCH_SRCS = arch/gdt.c arch/gdt_flush.asm arch/idt.c arch/tss.c arch/pic.c arch/timer.c arch/interrupt_handlers.c
-DRIVER_SRCS = drivers/disk.c drivers/vga.c drivers/hid.c drivers/input.c drivers/pci.c drivers/usb_host.c drivers/serial.c drivers/io.c drivers/part.c drivers/partition_table.c drivers/rtc.c drivers/ehci.c drivers/net.c
+DRIVER_SRCS = drivers/disk.c drivers/vga.c drivers/hid.c drivers/input.c drivers/ps2_keyboard.c drivers/pci.c drivers/usb_host.c drivers/serial.c drivers/io.c drivers/part.c drivers/partition_table.c drivers/rtc.c drivers/ehci.c drivers/net.c
 PROCESS_SRCS = process/process.c process/scheduler.c process/programs.c process/vm.c
 NET_SRCS = net/ip.c net/icmp.c net/tcp.c
-UI_SRCS = ui/shell.c ui/ui_command.c ui/ui_state.c
+UI_SRCS = ui/shell.c ui/ui_command.c ui/ui_state.c ui/nl_parser.c
 
 SRCS = $(KERNEL_SRCS) $(MEMORY_SRCS) $(FS_SRCS) $(ARCH_SRCS) $(DRIVER_SRCS) $(PROCESS_SRCS) $(UI_SRCS) $(NET_SRCS)
 

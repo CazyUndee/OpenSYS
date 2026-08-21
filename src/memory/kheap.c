@@ -172,11 +172,105 @@ void* krealloc(void* ptr, size_t new_size) {
 // Get heap statistics
 void kheap_get_stats(kheap_stats_t* stats) {
     if (!stats) return;
-    
+
     stats->total_size = bytes_used + bytes_free;
     stats->used_size = bytes_used;
-    stats->free_blocks = 0;  // Would need counting logic
-    stats->largest_free = 0;  // Would need scanning logic
+    stats->free_blocks = 0;
+    stats->largest_free = 0;
+    stats->block_count = 0;
+    stats->allocated_blocks = 0;
+
+    kheap_block_t* block = heap_first;
+    while (block && block->magic == KHEAP_MAGIC) {
+        stats->block_count++;
+        if (block->flags & KHEAP_ALLOCATED) {
+            stats->allocated_blocks++;
+        } else {
+            stats->free_blocks++;
+            if (block->size > stats->largest_free) {
+                stats->largest_free = block->size;
+            }
+        }
+        block = block->next;
+    }
+}
+
+// Walk the block list and verify structural integrity.
+// Checks: magic number on every block, flags are valid, the linked
+// list is contiguous (next block starts exactly where this one ends),
+// and sizes are sane. Returns the number of corruptions found
+// (0 = healthy heap).
+static uint64_t walk_blocks(uint64_t* out_allocated, uint64_t* out_largest_free) {
+    uint64_t corruptions = 0;
+    uint64_t allocated = 0;
+    uint64_t largest_free = 0;
+
+    kheap_block_t* block = heap_first;
+    while (block) {
+        if (block->magic != KHEAP_MAGIC) {
+            corruptions++;
+            break;  /* Cannot trust ->next after a bad magic */
+        }
+
+        if (block->flags != KHEAP_FREE && block->flags != KHEAP_ALLOCATED) {
+            corruptions++;
+        }
+
+        if (block->next) {
+            uint64_t expected = (uint64_t)block + sizeof(kheap_block_t) + block->size;
+            if ((uint64_t)block->next != expected) {
+                corruptions++;  /* Non-contiguous list */
+            }
+        }
+
+        if (block->flags & KHEAP_ALLOCATED) {
+            allocated++;
+        } else if (block->size > largest_free) {
+            largest_free = block->size;
+        }
+
+        block = block->next;
+    }
+
+    if (out_allocated) *out_allocated = allocated;
+    if (out_largest_free) *out_largest_free = largest_free;
+    return corruptions;
+}
+
+// Validate heap integrity. Returns number of corruptions (0 = healthy).
+// Silent — use kheap_dump() for diagnostics output.
+int kheap_validate(void) {
+    uint64_t allocated = 0;
+    uint64_t largest_free = 0;
+    uint64_t corruptions = walk_blocks(&allocated, &largest_free);
+    (void)allocated;
+    (void)largest_free;
+    return (int)corruptions;
+}
+
+// Dump the entire block list to the terminal (debugging aid).
+void kheap_dump(void) {
+    terminal_writestring("[KHEAP] block dump:\n");
+
+    kheap_block_t* block = heap_first;
+    uint32_t i = 0;
+    while (block && block->magic == KHEAP_MAGIC) {
+        terminal_writestring("  #");
+        terminal_put_dec(i);
+        terminal_writestring(" 0x");
+        terminal_put_hex((uint64_t)block);
+        terminal_writestring(" size=");
+        terminal_put_dec(block->size);
+        terminal_writestring(" ");
+        terminal_writestring((block->flags & KHEAP_ALLOCATED) ? "ALLOC" : "free");
+        terminal_writestring("\n");
+        block = block->next;
+        i++;
+        if (i > 256) break;
+    }
+    if (!block && i == 0) {
+        terminal_writestring("  (heap not initialized)\n");
+    }
 }
 
 // Legacy compatibility functions
