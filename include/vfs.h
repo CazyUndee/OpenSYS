@@ -15,6 +15,8 @@
 #define VFS_TYPE_FILE 1
 #define VFS_TYPE_DIR 2
 #define VFS_TYPE_DEVICE 3
+#define VFS_TYPE_PIPE_READ 4
+#define VFS_TYPE_PIPE_WRITE 5
 
 #define VFS_O_RDONLY 0
 #define VFS_O_WRONLY 1
@@ -74,6 +76,10 @@ int vfs_unlink(const char* path);
 void vfs_list(void (*callback)(const char*, int, uint32_t));
 
 void vfs_mount(const char* path, vfs_ops_t* ops);
+
+/* Create a pipe: fds[0] = read end, fds[1] = write end. Returns 0 on
+ * success, -1 on failure. Both ends live in the current fd table. */
+int vfs_pipe(int fds[2]);
 
 /* Mount table accessors */
 int vfs_mount_count(void);

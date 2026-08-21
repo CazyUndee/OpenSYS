@@ -668,6 +668,99 @@ static void test_vfs_fd_unlink(void) {
     TEST_PASS();
 }
 
+/* ---- Test: VFS pipes ---- */
+
+static void test_vfs_pipe_roundtrip(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+    ASSERT(fds[0] >= 0 && fds[1] >= 0, "pipe fds should be valid");
+    ASSERT(fds[0] != fds[1], "read and write ends should differ");
+
+    const char* msg = "pipe-data";
+    int w = vfs_write(fds[1], msg, (int)strlen(msg));
+    ASSERT(w == (int)strlen(msg), "pipe write should return byte count");
+
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(fds[0], buf, sizeof(buf));
+    ASSERT(n == (int)strlen(msg), "pipe read should return byte count");
+    ASSERT(strcmp(buf, msg) == 0, "pipe data should round-trip");
+    TEST_PASS();
+}
+
+static void test_vfs_pipe_empty_read(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+
+    char buf[16];
+    int n = vfs_read(fds[0], buf, sizeof(buf));
+    ASSERT(n == 0, "read from empty pipe should return 0");
+    TEST_PASS();
+}
+
+static void test_vfs_pipe_sequential_reads(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+
+    vfs_write(fds[1], "abc", 3);
+    vfs_write(fds[1], "def", 3);
+
+    char buf[8];
+    memset(buf, 0, sizeof(buf));
+    int n1 = vfs_read(fds[0], buf, 3);
+    ASSERT(n1 == 3 && strcmp(buf, "abc") == 0, "first read should return 'abc'");
+
+    memset(buf, 0, sizeof(buf));
+    int n2 = vfs_read(fds[0], buf, 3);
+    ASSERT(n2 == 3 && strcmp(buf, "def") == 0, "second read should return 'def'");
+
+    memset(buf, 0, sizeof(buf));
+    int n3 = vfs_read(fds[0], buf, 3);
+    ASSERT(n3 == 0, "third read on drained pipe should return 0");
+    TEST_PASS();
+}
+
+static void test_vfs_pipe_wrong_end_rejected(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+
+    /* Reading the write end or writing the read end must fail */
+    char buf[16];
+    ASSERT(vfs_read(fds[1], buf, sizeof(buf)) == -1, "read on write end should fail");
+    ASSERT(vfs_write(fds[0], "x", 1) == -1, "write on read end should fail");
+    TEST_PASS();
+}
+
+static void test_vfs_pipe_close_frees_pipe(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+
+    ASSERT(vfs_close(fds[0]) == 0, "close read end should succeed");
+    ASSERT(vfs_close(fds[1]) == 0, "close write end should succeed");
+
+    /* Both ends closed: reads/writes on the old fds fail */
+    char buf[8];
+    ASSERT(vfs_read(fds[0], buf, sizeof(buf)) == -1, "read after close should fail");
+    ASSERT(vfs_write(fds[1], "x", 1) == -1, "write after close should fail");
+
+    /* A new pipe should still work (pool slot recycled) */
+    int fds2[2];
+    ASSERT(vfs_pipe(fds2) == 0, "second vfs_pipe should succeed");
+    vfs_write(fds2[1], "hi", 2);
+    char b2[8];
+    memset(b2, 0, sizeof(b2));
+    int n = vfs_read(fds2[0], b2, sizeof(b2));
+    ASSERT(n == 2 && strcmp(b2, "hi") == 0, "new pipe should work after old closed");
+    vfs_close(fds2[0]);
+    vfs_close(fds2[1]);
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -712,6 +805,13 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_fd_open_read_close", test_vfs_fd_open_read_close);
     test_suite_add_test(&suite, "vfs_fd_write_roundtrip", test_vfs_fd_write_roundtrip);
     test_suite_add_test(&suite, "vfs_fd_unlink", test_vfs_fd_unlink);
+
+    /* VFS pipe tests */
+    test_suite_add_test(&suite, "vfs_pipe_roundtrip", test_vfs_pipe_roundtrip);
+    test_suite_add_test(&suite, "vfs_pipe_empty_read", test_vfs_pipe_empty_read);
+    test_suite_add_test(&suite, "vfs_pipe_sequential_reads", test_vfs_pipe_sequential_reads);
+    test_suite_add_test(&suite, "vfs_pipe_wrong_end_rejected", test_vfs_pipe_wrong_end_rejected);
+    test_suite_add_test(&suite, "vfs_pipe_close_frees_pipe", test_vfs_pipe_close_frees_pipe);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

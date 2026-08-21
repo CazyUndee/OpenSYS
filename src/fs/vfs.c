@@ -38,6 +38,9 @@ static vfs_ops_t* find_ops(const char* path) {
 static vfs_node_t* alloc_node(void) {
     for (int i = 0; i < MAX_VFS_NODES; i++) {
         if (node_pool[i].ref_count == 0 && node_pool[i].ops == 0) {
+            /* Mark the slot as held so a second alloc cannot return the
+             * same node before the caller finishes initializing it. */
+            node_pool[i].ref_count = 1;
             return &node_pool[i];
         }
     }
@@ -104,6 +107,158 @@ static vfs_ops_t ramfs_vfs_ops = {
     .list = ramfs_vfs_list,
 };
 
+/* ========== Pipe VFS ops ==========
+ * A pipe is a pair of fd-table entries (read end, write end) sharing a
+ * fixed-size ring buffer. The node's internal_fd holds the pipe index
+ * into the static pipe pool; the node type distinguishes the ends. */
+
+#define VFS_PIPE_BUF_SIZE 4096
+#define VFS_MAX_PIPES     16
+
+typedef struct {
+    uint8_t buf[VFS_PIPE_BUF_SIZE];
+    size_t  head;    /* next write position */
+    size_t  tail;    /* next read position */
+    size_t  count;   /* bytes currently buffered */
+    int     readers; /* open read ends */
+    int     writers; /* open write ends */
+} vfs_pipe_t;
+
+static vfs_pipe_t pipes[VFS_MAX_PIPES];
+static int pipe_in_use[VFS_MAX_PIPES];
+
+static int pipe_alloc_index(void) {
+    for (int i = 0; i < VFS_MAX_PIPES; i++) {
+        if (!pipe_in_use[i]) return i;
+    }
+    return -1;
+}
+
+static int pipe_vfs_read(int pipe_idx, void* buf, size_t size, size_t offset) {
+    (void)offset;
+    if (pipe_idx < 0 || pipe_idx >= VFS_MAX_PIPES || !pipe_in_use[pipe_idx]) return -1;
+    if (!buf || size == 0) return 0;
+
+    vfs_pipe_t* p = &pipes[pipe_idx];
+    if (p->count == 0) {
+        /* Writers gone: EOF. Otherwise nothing to read yet. */
+        return p->writers == 0 ? 0 : 0;
+    }
+
+    size_t n = size < p->count ? size : p->count;
+    uint8_t* dst = (uint8_t*)buf;
+    for (size_t i = 0; i < n; i++) {
+        dst[i] = p->buf[(p->tail + i) % VFS_PIPE_BUF_SIZE];
+    }
+    p->tail = (p->tail + n) % VFS_PIPE_BUF_SIZE;
+    p->count -= n;
+    return (int)n;
+}
+
+static int pipe_vfs_write(int pipe_idx, const void* buf, size_t size) {
+    if (pipe_idx < 0 || pipe_idx >= VFS_MAX_PIPES || !pipe_in_use[pipe_idx]) return -1;
+    if (!buf || size == 0) return 0;
+
+    vfs_pipe_t* p = &pipes[pipe_idx];
+    if (p->count >= VFS_PIPE_BUF_SIZE) return 0;  /* full — no room */
+
+    size_t n = size;
+    size_t space = VFS_PIPE_BUF_SIZE - p->count;
+    if (n > space) n = space;
+
+    const uint8_t* src = (const uint8_t*)buf;
+    for (size_t i = 0; i < n; i++) {
+        p->buf[(p->head + i) % VFS_PIPE_BUF_SIZE] = src[i];
+    }
+    p->head = (p->head + n) % VFS_PIPE_BUF_SIZE;
+    p->count += n;
+    return (int)n;
+}
+
+static int pipe_vfs_close_read(int pipe_idx) {
+    if (pipe_idx < 0 || pipe_idx >= VFS_MAX_PIPES || !pipe_in_use[pipe_idx]) return -1;
+    pipes[pipe_idx].readers--;
+    if (pipes[pipe_idx].readers <= 0 && pipes[pipe_idx].writers <= 0) {
+        pipe_in_use[pipe_idx] = 0;
+    }
+    return 0;
+}
+
+static int pipe_vfs_close_write(int pipe_idx) {
+    if (pipe_idx < 0 || pipe_idx >= VFS_MAX_PIPES || !pipe_in_use[pipe_idx]) return -1;
+    pipes[pipe_idx].writers--;
+    if (pipes[pipe_idx].readers <= 0 && pipes[pipe_idx].writers <= 0) {
+        pipe_in_use[pipe_idx] = 0;
+    }
+    return 0;
+}
+
+static vfs_ops_t pipe_read_vfs_ops = {
+    .read  = pipe_vfs_read,
+    .close = pipe_vfs_close_read,
+};
+
+static vfs_ops_t pipe_write_vfs_ops = {
+    .write = pipe_vfs_write,
+    .close = pipe_vfs_close_write,
+};
+
+/* Create a pipe. fds[0] = read end, fds[1] = write end. Returns 0 on
+ * success, -1 on failure. The pipe is created in the current fd table
+ * (kernel table when no process is current). */
+int vfs_pipe(int fds[2]) {
+    if (!fds) return -1;
+
+    int idx = pipe_alloc_index();
+    if (idx < 0) return -1;
+
+    vfs_pipe_t* p = &pipes[idx];
+    p->head = 0;
+    p->tail = 0;
+    p->count = 0;
+    p->readers = 1;
+    p->writers = 1;
+    pipe_in_use[idx] = 1;
+
+    vfs_node_t* rnode = alloc_node();
+    vfs_node_t* wnode = alloc_node();
+    if (!rnode || !wnode) {
+        pipe_in_use[idx] = 0;
+        if (rnode) free_node(rnode);
+        if (wnode) free_node(wnode);
+        return -1;
+    }
+
+    rnode->type = VFS_TYPE_PIPE_READ;
+    rnode->internal_fd = idx;
+    rnode->ops = &pipe_read_vfs_ops;
+    rnode->offset = 0;
+    rnode->size = VFS_PIPE_BUF_SIZE;
+    rnode->ref_count = 0;
+    rnode->flags = VFS_O_RDONLY;
+
+    wnode->type = VFS_TYPE_PIPE_WRITE;
+    wnode->internal_fd = idx;
+    wnode->ops = &pipe_write_vfs_ops;
+    wnode->offset = 0;
+    wnode->size = VFS_PIPE_BUF_SIZE;
+    wnode->ref_count = 0;
+    wnode->flags = VFS_O_WRONLY;
+
+    fd_table_t* table = get_current_fd_table();
+
+    fds[0] = fd_table_alloc(table, rnode);
+    fds[1] = fd_table_alloc(table, wnode);
+    if (fds[0] < 0 || fds[1] < 0) {
+        if (fds[0] >= 0) fd_table_close(table, fds[0]);
+        if (fds[1] >= 0) fd_table_close(table, fds[1]);
+        pipe_in_use[idx] = 0;
+        return -1;
+    }
+
+    return 0;
+}
+
 /* ========== VFS core ========== */
 
 void vfs_init(void) {
@@ -161,7 +316,7 @@ int vfs_open(const char* path, int flags) {
     node->ops = ops;
     node->offset = 0;
     node->size = ramfs_size(internal_fd);
-    node->ref_count = 1;
+    node->ref_count = 0;
     node->flags = flags & 3;
 
     process_t* proc = process_current();

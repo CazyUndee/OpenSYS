@@ -837,3 +837,37 @@ The mission priority list calls out file descriptors. The VFS fd-table machinery
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: **114/114 pass** (111 previous + 3 fd round-trip tests)
 - User-mode syscalls now allocate real VFS file descriptors; the fd table is no longer dead code
+
+---
+
+## 2026-08-21 — VFS Pipes (IPC) + Node-Pool Fix
+
+### Context
+Mission priority list calls out pipes/IPC. With the fd table wired (previous entry), pipes became the natural next fd-based primitive. Along the way, two pre-existing vfs.c bugs surfaced.
+
+### Bugs found & fixed (`src/fs/vfs.c`)
+1. **`alloc_node()` returned the same slot twice** — nothing marked a node as held between allocation and initialization. `vfs_open` never hit it (single alloc per call), but `vfs_pipe` allocates two nodes back-to-back and both got the same slot: the pipe's read and write ends were the same node (both ended up the write type). `alloc_node` now sets `ref_count = 1` on the slot it returns so a second alloc cannot hand it out again.
+2. **`vfs_open` leaked its node** — it set `node->ref_count = 1` as a base, so after open+close the node never returned to the pool (ref_count stayed 1); over enough opens the 128-node pool would exhaust. Base is now 0; the fd-table alloc's increment is the only reference, so close returns the node to the pool.
+
+### New: VFS pipes
+- `src/fs/vfs.c` + `include/vfs.h`: `vfs_pipe(int fds[2])` creates a pair of fd-table entries (read end type `VFS_TYPE_PIPE_READ`, write end `VFS_TYPE_PIPE_WRITE`) sharing a fixed-size 4096-byte ring buffer in a static pipe pool. `VFS_MAX_PIPES = 16`. Read/write ops enforce direction (wrong-end reads/writes fail); close decrements per-end counters and frees the pipe slot when both ends are gone.
+- `include/syscall.h` + `src/kernel/sys.c`: `SYS_PIPE` (15) → `sys_pipe()` → `vfs_pipe()`.
+- `src/ui/shell.c`: `pipe` command creates a pipe, writes "hello through pipe" via the write fd, reads it back via the read fd, verifies the second read returns 0, and closes both ends — an end-to-end fd/IPC round trip.
+
+#### Tests (`tests/unit/test_vfile.c`)
+5 new host tests: round-trip (write→read→verify), empty-read returns 0, sequential reads (abc/def/EOF), wrong-end rejection, close-frees-pipe (fd reuse + fresh pipe works after closing).
+
+### Verified under QEMU (`-accel whpx`)
+```
+> pipe
+  Pipe created: read fd=0, write fd=1
+  Wrote 18 bytes to pipe
+  Read 18 bytes: "hello through pipe"
+  Second read: 0 bytes (empty pipe)
+  Pipe closed
+```
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **119/119 pass** (114 previous + 5 pipe tests)
+- Pipes verified end-to-end under QEMU/WHPX (5/5 checks pass)

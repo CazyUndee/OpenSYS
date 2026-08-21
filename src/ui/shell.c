@@ -28,6 +28,7 @@
 #include "scheduler.h"
 #include "pmm.h"
 #include "ramfs.h"
+#include "vfs.h"
 #include "rtc.h"
 #include "ui_command.h"
 #include "intent_dispatcher.h"
@@ -100,6 +101,45 @@ static void cmd_show_memory(void) {
     terminal_put_dec(free);
     terminal_writestring_nl(" MB");
     terminal_writestring_nl("");
+}
+
+static void cmd_pipe(void) {
+    int fds[2];
+    if (vfs_pipe(fds) < 0) {
+        terminal_writestring_nl("  Error: could not create pipe");
+        return;
+    }
+
+    terminal_writestring("  Pipe created: read fd=");
+    terminal_put_dec(fds[0]);
+    terminal_writestring(", write fd=");
+    terminal_put_dec(fds[1]);
+    terminal_writestring_nl("");
+
+    const char* msg = "hello through pipe";
+    int w = vfs_write(fds[1], msg, k_strlen(msg));
+    terminal_writestring("  Wrote ");
+    terminal_put_dec(w);
+    terminal_writestring_nl(" bytes to pipe");
+
+    char buf[64];
+    int n = vfs_read(fds[0], buf, sizeof(buf));
+    buf[n] = 0;
+    terminal_writestring("  Read ");
+    terminal_put_dec(n);
+    terminal_writestring(" bytes: \"");
+    terminal_writestring(buf);
+    terminal_writestring_nl("\"");
+
+    /* Drain: second read should be 0 (empty pipe) */
+    int n2 = vfs_read(fds[0], buf, sizeof(buf));
+    terminal_writestring("  Second read: ");
+    terminal_put_dec(n2);
+    terminal_writestring_nl(" bytes (empty pipe)");
+
+    vfs_close(fds[0]);
+    vfs_close(fds[1]);
+    terminal_writestring_nl("  Pipe closed");
 }
 
 static void cmd_ps(void) {
@@ -1100,6 +1140,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "ps")) {
         cmd_ps();
+    }
+    else if (cmd_equals(cmd, "pipe")) {
+        cmd_pipe();
     }
     else if (cmd_equals(cmd, "clear")) {
         cmd_clear();

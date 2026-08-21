@@ -23,6 +23,7 @@
 #define SYS_BRK     12
 #define SYS_MMAP    13
 #define SYS_MUNMAP  14
+#define SYS_PIPE    15
 
 /* Initialize syscall handler */
 void syscall_init(void);
