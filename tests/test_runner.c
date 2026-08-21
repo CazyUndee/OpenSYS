@@ -13,7 +13,10 @@
 extern test_suite_t* create_memory_test_suite(void);
 extern test_suite_t* create_filesystem_test_suite(void);
 extern test_suite_t* create_process_test_suite(void);
+extern test_suite_t* create_nl_parser_test_suite(void);
 extern test_suite_t* create_kernel_integration_test_suite(void);
+extern test_suite_t* create_vfile_test_suite(void);
+extern test_suite_t* create_ramfs_test_suite(void);
 
 // Test suite registry
 typedef struct {
@@ -26,7 +29,10 @@ static test_suite_info_t test_suites[] = {
     {"Memory Management", create_memory_test_suite, 1},
     {"Filesystem", create_filesystem_test_suite, 1},
     {"Process Management", create_process_test_suite, 1},
+    {"Natural Language Parser", create_nl_parser_test_suite, 1},
     {"Kernel Integration", create_kernel_integration_test_suite, 1},
+    {"Virtual Filesystem", create_vfile_test_suite, 1},
+    {"RAM Filesystem", create_ramfs_test_suite, 1},
 };
 
 static const int num_test_suites = sizeof(test_suites) / sizeof(test_suite_info_t);
@@ -160,7 +166,6 @@ test_suite_t* suite = suite_info->create_suite();
 
 int main(int argc, char* argv[]) {
     int verbose = 1;
-    int quiet = 0;
     const char* specific_suite = NULL;
     
     // Parse command line arguments
@@ -173,9 +178,7 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             verbose = 1;
-            quiet = 0;
         } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
-            quiet = 1;
             verbose = 0;
         } else if ((strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--suite") == 0) && i + 1 < argc) {
             specific_suite = argv[++i];

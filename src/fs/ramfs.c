@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "kheap.h"
+#include "ramfs.h"
 
 #define MAX_FILES 64
 #define MAX_FILENAME 32
@@ -212,4 +213,31 @@ int ramfs_get_file_count(void) {
         if (files[i].in_use) count++;
     }
     return count;
+}
+
+void ramfs_get_stats(ramfs_stats_t* stats) {
+    if (!stats) return;
+
+    uint64_t used = 0;
+    uint64_t allocated = 0;
+    uint32_t fcount = 0;
+    uint32_t dirs = 0;
+
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (!files[i].in_use) continue;
+        fcount++;
+        if (files[i].is_directory) {
+            dirs++;
+        } else {
+            used += files[i].size;
+            allocated += files[i].capacity;
+        }
+    }
+
+    stats->total_capacity = RAMFS_TOTAL_CAPACITY;
+    stats->used_bytes = used;
+    stats->free_bytes = (used < RAMFS_TOTAL_CAPACITY) ? RAMFS_TOTAL_CAPACITY - used : 0;
+    stats->allocated_bytes = allocated;
+    stats->file_count = fcount;
+    stats->dir_count = dirs;
 }

@@ -10,22 +10,29 @@ CFLAGS = -Wall -Wextra -g -std=c99 -I../include
 TESTDIR = .
 UNITDIR = $(TESTDIR)/unit
 INTEGRATIONDIR = $(TESTDIR)/integration
+MOCKDIR = $(TESTDIR)/mocks
 OBJDIR = obj
 BINDIR = bin
 
 # Source files
 TEST_FRAMEWORK_SRCS = test_framework.c test_runner.c
-UNIT_TEST_SRCS = $(UNITDIR)/test_memory.c $(UNITDIR)/test_filesystem.c $(UNITDIR)/test_process.c
+UNIT_TEST_SRCS = $(UNITDIR)/test_memory.c $(UNITDIR)/test_filesystem.c $(UNITDIR)/test_process.c $(UNITDIR)/test_nl_parser.c $(UNITDIR)/test_vfile.c $(UNITDIR)/test_ramfs.c
 INTEGRATION_TEST_SRCS = $(INTEGRATIONDIR)/test_kernel_integration.c
+MOCK_SRCS = $(MOCKDIR)/mock_kernel.c $(MOCKDIR)/mock_hardware.c
 
-ALL_SRCS = $(TEST_FRAMEWORK_SRCS) $(UNIT_TEST_SRCS) $(INTEGRATION_TEST_SRCS)
+# Real implementations compiled into the host tests (no kernel dependencies)
+REAL_SRCS = ../src/ui/nl_parser.c ../src/kernel/kstring.c ../src/fs/vfile.c ../src/fs/ramfs.c
+
+ALL_SRCS = $(TEST_FRAMEWORK_SRCS) $(UNIT_TEST_SRCS) $(INTEGRATION_TEST_SRCS) $(MOCK_SRCS) $(REAL_SRCS)
 
 # Object files
 TEST_FRAMEWORK_OBJS = $(TEST_FRAMEWORK_SRCS:%.c=$(OBJDIR)/%.o)
 UNIT_TEST_OBJS = $(UNIT_TEST_SRCS:%.c=$(OBJDIR)/%.o)
 INTEGRATION_TEST_OBJS = $(INTEGRATION_TEST_SRCS:%.c=$(OBJDIR)/%.o)
+MOCK_OBJS = $(MOCK_SRCS:%.c=$(OBJDIR)/%.o)
+REAL_OBJS = $(REAL_SRCS:../src/%.c=$(OBJDIR)/real/%.o)
 
-ALL_OBJS = $(TEST_FRAMEWORK_OBJS) $(UNIT_TEST_OBJS) $(INTEGRATION_TEST_OBJS)
+ALL_OBJS = $(TEST_FRAMEWORK_OBJS) $(UNIT_TEST_OBJS) $(INTEGRATION_TEST_OBJS) $(MOCK_OBJS) $(REAL_OBJS)
 
 # Targets
 TEST_RUNNER = $(BINDIR)/test_runner
@@ -41,6 +48,7 @@ $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 	@mkdir -p $(OBJDIR)/unit
 	@mkdir -p $(OBJDIR)/integration
+	@mkdir -p $(OBJDIR)/mocks
 
 $(BINDIR):
 	@mkdir -p $(BINDIR)
@@ -53,6 +61,13 @@ $(OBJDIR)/unit/%.o: $(UNITDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OBJDIR)/integration/%.o: $(INTEGRATIONDIR)/%.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/mocks/%.o: $(MOCKDIR)/%.c | $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/real/%.o: ../src/%.c | $(OBJDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Test runner executable
@@ -153,4 +168,9 @@ $(OBJDIR)/test_runner.o: test_runner.c test_framework.h
 $(OBJDIR)/unit/test_memory.o: $(UNITDIR)/test_memory.c test_framework.h ../include/memory.h
 $(OBJDIR)/unit/test_filesystem.o: $(UNITDIR)/test_filesystem.c test_framework.h ../include/fs.h
 $(OBJDIR)/unit/test_process.o: $(UNITDIR)/test_process.c test_framework.h ../include/process.h
+$(OBJDIR)/unit/test_nl_parser.o: $(UNITDIR)/test_nl_parser.c test_framework.h ../include/nl_parser.h
+$(OBJDIR)/real/ui/nl_parser.o: ../src/ui/nl_parser.c ../include/nl_parser.h ../include/kstring.h
+$(OBJDIR)/real/kernel/kstring.o: ../src/kernel/kstring.c ../include/kstring.h
 $(OBJDIR)/integration/test_kernel_integration.o: $(INTEGRATIONDIR)/test_kernel_integration.c test_framework.h ../include/memory.h ../include/process.h ../include/fs.h
+$(OBJDIR)/mocks/mock_kernel.o: $(MOCKDIR)/mock_kernel.c ../include/memory.h ../include/pmm.h ../include/kheap.h
+$(OBJDIR)/mocks/mock_hardware.o: $(MOCKDIR)/mock_hardware.c $(MOCKDIR)/mock_hardware.h

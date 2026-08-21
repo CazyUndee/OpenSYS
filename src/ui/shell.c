@@ -22,31 +22,27 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "vga.h"
-#include "ps2_keyboard.h"
+#include "input.h"
 #include "fs.h"
 #include "process.h"
 #include "scheduler.h"
 #include "pmm.h"
+#include "ramfs.h"
 #include "rtc.h"
 #include "ui_command.h"
 #include "intent_dispatcher.h"
 #include "timer.h"
 #include "io.h"
 #include "kstring.h"
+#include "path.h"
 #include "net.h"
 #include "ip.h"
 #include "icmp.h"
+#include "nl_parser.h"
+#include "vfile.h"
+#include "version.h"
 
 #define MAX_CMD_LEN 256
-
-static char cwd[256] = "/";
-
-static char* trim(char* s) {
-    while (*s == ' ') s++;
-    char* end = s + k_strlen(s) - 1;
-    while (end > s && *end == ' ') *end-- = 0;
-    return s;
-}
 
 static int cmd_equals(const char* input, const char* pattern) {
     return k_strcmp(input, pattern) == 0;
@@ -64,13 +60,31 @@ static void list_callback(const char* name, int is_dir, uint32_t size) {
     terminal_writestring_nl(name);
 }
 
-static void cmd_list(void) {
-    terminal_writestring_nl("");
-    int count = fs_readdir("/", list_callback);
-    if (count == 0) {
-        terminal_writestring_nl("  (empty filesystem)");
+static void cmd_list(const char* name) {
+    char path[256];
+    if (name && *name) {
+        if (resolve_path(path, name) < 0) {
+            terminal_writestring_nl("  Error: path too long");
+            return;
+        }
     } else {
+        k_strcpy(path, "/");
+    }
+
+    terminal_writestring_nl("");
+
+    /* Check virtual filesystem first */
+    int vcount = vfile_list(path, list_callback);
+
+    /* Also try real filesystem */
+    int rcount = fs_readdir(path, list_callback);
+
+    if (vcount == 0 || rcount > 0) {
         terminal_writestring_nl("");
+    } else if (vcount < 0 && rcount == 0) {
+        terminal_writestring_nl("  (empty)");
+    } else if (vcount < 0 && rcount < 0) {
+        terminal_writestring_nl("  Error: directory not found");
     }
 }
 
@@ -154,21 +168,9 @@ static void cmd_create_file(const char* name) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     fs_file_t* file = fs_open(path, 1);
@@ -187,21 +189,9 @@ static void cmd_mkdir(const char* name) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     if (fs_mkdir(path) < 0) {
@@ -218,21 +208,9 @@ static void cmd_delete(const char* name) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     if (fs_unlink(path) < 0) {
@@ -249,21 +227,28 @@ static void cmd_write_file(const char* name, const char* content) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    /* Check virtual filesystem first */
+    if (vfile_is_virtual(path)) {
+        if (!vfile_is_writable(path)) {
+            terminal_writestring_nl("  Error: Virtual file is read-only");
+            return;
         }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
+        int len = k_strlen(content);
+        int written = vfile_write(path, content, len);
+        if (written < 0) {
+            terminal_writestring_nl("  Error: Write failed");
+        } else {
+            terminal_writestring("  Wrote ");
+            terminal_put_dec(written);
+            terminal_writestring(" bytes to ");
+            terminal_writestring_nl(name);
         }
-        path[len] = 0;
+        return;
     }
     
     fs_file_t* file = fs_open(path, 1);
@@ -286,21 +271,20 @@ static void cmd_read_file(const char* name) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    /* Check virtual filesystem first */
+    char vbuf[VFILE_MAX_CONTENT];
+    int vlen = vfile_read(path, vbuf, sizeof(vbuf));
+    if (vlen >= 0) {
+        vbuf[vlen] = 0;
+        terminal_writestring_nl("");
+        terminal_writestring_nl(vbuf);
+        terminal_writestring_nl("");
+        return;
     }
     
     fs_file_t* file = fs_open(path, 0);
@@ -332,42 +316,11 @@ static void cmd_copy(const char* src, const char* dst) {
         return;
     }
     
-    // Build source path
     char src_path[256];
-    if (src[0] == '/') {
-        int len = 0;
-        while (src[len] && len < 255) {
-            src_path[len] = src[len];
-            len++;
-        }
-        src_path[len] = 0;
-    } else {
-        src_path[0] = '/';
-        int len = 1;
-        while (src[len-1] && len < 255) {
-            src_path[len] = src[len-1];
-            len++;
-        }
-        src_path[len] = 0;
-    }
-    
-    // Build destination path
     char dst_path[256];
-    if (dst[0] == '/') {
-        int len = 0;
-        while (dst[len] && len < 255) {
-            dst_path[len] = dst[len];
-            len++;
-        }
-        dst_path[len] = 0;
-    } else {
-        dst_path[0] = '/';
-        int len = 1;
-        while (dst[len-1] && len < 255) {
-            dst_path[len] = dst[len-1];
-            len++;
-        }
-        dst_path[len] = 0;
+    if (resolve_path(src_path, src) < 0 || resolve_path(dst_path, dst) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     // Open source file
@@ -421,21 +374,9 @@ static void cmd_move(const char* src, const char* dst) {
     
     // Delete the original
     char src_path[256];
-    if (src[0] == '/') {
-        int len = 0;
-        while (src[len] && len < 255) {
-            src_path[len] = src[len];
-            len++;
-        }
-        src_path[len] = 0;
-    } else {
-        src_path[0] = '/';
-        int len = 1;
-        while (src[len-1] && len < 255) {
-            src_path[len] = src[len-1];
-            len++;
-        }
-        src_path[len] = 0;
+    if (resolve_path(src_path, src) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     if (fs_unlink(src_path) >= 0) {
@@ -452,24 +393,12 @@ static void cmd_append(const char* name, const char* content) {
     }
     
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
-    fs_file_t* file = fs_open(path, 1);
+    fs_file_t* file = fs_open(path, 2);  /* mode 2 = append */
     if (!file) {
         terminal_writestring_nl("  Error: Could not open file");
         return;
@@ -575,7 +504,7 @@ static void cmd_echo(const char* text) {
 
 static void cmd_version(void) {
     terminal_writestring_nl("");
-    terminal_writestring_nl(" Plan 0 v0.4.1");
+    terminal_writestring(" " PLAN0_FULL_NAME "\n");
     terminal_writestring_nl("  Plan 0 - 64-bit Operating System");
     terminal_writestring_nl("  FS - NTFS-style filesystem");
     terminal_writestring_nl("  Shell - Natural language interface");
@@ -634,21 +563,9 @@ static void cmd_file_info(const char* name) {
         return;
     }
     char path[256];
-    if (name[0] == '/') {
-        int len = 0;
-        while (name[len] && len < 255) {
-            path[len] = name[len];
-            len++;
-        }
-        path[len] = 0;
-    } else {
-        path[0] = '/';
-        int len = 1;
-        while (name[len-1] && len < 255) {
-            path[len] = name[len-1];
-            len++;
-        }
-        path[len] = 0;
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     
     fs_file_t* file = fs_open(path, 0);
@@ -671,8 +588,16 @@ static void cmd_file_info(const char* name) {
 
 static void show_help(void) {
     terminal_writestring_nl("");
-    terminal_writestring_nl("  Shell Natural Language Commands:");
-    terminal_writestring_nl("  ---------------------------------");
+    terminal_writestring_nl("  Plan 0 understands natural language:");
+    terminal_writestring_nl("    list files in documents");
+    terminal_writestring_nl("    list current directory");
+    terminal_writestring_nl("    create a file called notes.txt");
+    terminal_writestring_nl("    write hello world to notes.txt");
+    terminal_writestring_nl("    delete the file notes.txt");
+    terminal_writestring_nl("    show me the memory");
+    terminal_writestring_nl("");
+    terminal_writestring_nl("  Commands:");
+    terminal_writestring_nl("  ---------");
     terminal_writestring_nl("  File Operations:");
     terminal_writestring_nl("    list              - show all files");
     terminal_writestring_nl("    create <name>     - create new file");
@@ -723,6 +648,9 @@ static void show_help(void) {
     terminal_writestring_nl("    edit <name>       - simple text editor");
 terminal_writestring_nl(" ping <addr> - ping an address");
     terminal_writestring_nl("    uptime            - show system uptime");
+    terminal_writestring_nl("    mount             - show mounted filesystems");
+    terminal_writestring_nl("    df                - disk free (filesystem usage)");
+    terminal_writestring_nl("    ps                - list processes (alias for show processes)");
     terminal_writestring_nl("    reboot            - reboot the system");
     terminal_writestring_nl("    shutdown          - shutdown the system");
     terminal_writestring_nl("    whoami            - show current user");
@@ -769,10 +697,9 @@ static void cmd_edit(const char* filename) {
         return;
     }
     char path[256];
-    if (filename[0] == '/') {
-        int len = 0; while (filename[len] && len < 255) { path[len] = filename[len]; len++; } path[len] = 0;
-    } else {
-        path[0] = '/'; int len = 1; while (filename[len-1] && len < 255) { path[len] = filename[len-1]; len++; } path[len] = 0;
+    if (resolve_path(path, filename) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
     }
     fs_file_t* file = fs_open(path, 1);
     if (!file) {
@@ -786,8 +713,8 @@ static void cmd_edit(const char* filename) {
     char line_buf[256];
     int line_pos = 0;
     while (1) {
-        if (ps2_keyboard_has_key()) {
-            char c = ps2_keyboard_getc();
+        if (keyboard_has_key()) {
+            char c = keyboard_getc();
             if (c == '\n') {
                 line_buf[line_pos] = 0;
                 if (line_pos == 1 && line_buf[0] == '.') break;
@@ -854,7 +781,7 @@ static void cmd_whoami(void) {
 }
 
 static void cmd_uname(void) {
-    terminal_writestring("  Plan 0 v0.4.1");
+    terminal_writestring("  " PLAN0_FULL_NAME);
 }
 
 static void cmd_env(void) {
@@ -876,7 +803,6 @@ static void cmd_ping(const char* addr) {
   ip_addr_t dst = {0};
   int octet = 0, digit_idx = 0;
   char digits[4];
-  int d = 0;
   for (int i = 0; addr[i] && octet < 4; i++) {
     if (addr[i] >= '0' && addr[i] <= '9') {
       if (digit_idx < 3) digits[digit_idx++] = addr[i];
@@ -934,45 +860,73 @@ static void cmd_clear(void) {
     terminal_clear();
 }
 
-static void process_command(char* cmd) {
-    cmd = trim(cmd);
-    if (k_strlen(cmd) == 0) return;
+static void cmd_mount(void) {
+    char buf[512];
+    int len = vfile_read("/proc/mounts", buf, sizeof(buf));
+    if (len > 0) {
+        buf[len] = 0;
+        terminal_writestring_nl("");
+        terminal_writestring_nl(buf);
+    } else {
+        terminal_writestring_nl("  Error: could not read mount table");
+    }
+}
 
-    char* arg1 = cmd;
-    while (*arg1 && *arg1 != ' ') arg1++;
-    if (*arg1 == ' ') {
-        *arg1 = 0;
-        arg1++;
-        while (*arg1 == ' ') arg1++;
+static void cmd_df(void) {
+    terminal_writestring_nl("");
+    terminal_writestring_nl("  Filesystem      Size      Used      Avail     Mount");
+    terminal_writestring_nl("  --------------  --------  --------  --------  -------");
+
+    /* The shell's real file operations go through fs.c (the NTFS-style
+     * filesystem, kept in memory when no disk is attached). Report its
+     * actual usage from the cluster bitmap and MFT. */
+    fs_stats_t fst;
+    if (fs_get_stats(&fst) == 0) {
+        terminal_writestring("  fs              ");
+        terminal_put_dec(fst.total_bytes / 1024);
+        terminal_writestring(" KB    ");
+        terminal_put_dec(fst.used_bytes / 1024);
+        terminal_writestring(" KB    ");
+        terminal_put_dec(fst.free_bytes / 1024);
+        terminal_writestring(" KB    /\n");
+
+        terminal_writestring("  ");
+        terminal_put_dec(fst.file_count);
+        terminal_writestring(" files, ");
+        terminal_put_dec(fst.dir_count);
+        terminal_writestring(" directories\n");
+    } else {
+        /* Fallback: filesystem not mounted yet */
+        ramfs_stats_t rs;
+        ramfs_get_stats(&rs);
+        terminal_writestring("  ramfs           ");
+        terminal_put_dec(rs.total_capacity / 1024);
+        terminal_writestring(" KB    ");
+        terminal_put_dec(rs.used_bytes / 1024);
+        terminal_writestring(" KB    ");
+        terminal_put_dec(rs.free_bytes / 1024);
+        terminal_writestring(" KB    /\n");
     }
 
-    char* arg2 = arg1;
-    while (*arg2 && *arg2 != ' ') arg2++;
-    if (*arg2 == ' ') {
-        *arg2 = 0;
-        arg2++;
-        while (*arg2 == ' ') arg2++;
-    }
+    /* vfile */
+    terminal_writestring("  vfile           0 KB      0 KB      0 KB      /proc,/sys,/dev\n");
+    terminal_writestring_nl("");
+}
 
-    if (cmd_equals(cmd, "list")) {
-        cmd_list();
+/* Dispatch a canonical (verb, arg1, arg2) triple. Used both by the plain
+ * token-based parser and by the natural-language parser (nl_parser.c). */
+static void dispatch(char* cmd, char* arg1, char* arg2) {
+    /* Multi-word commands — matched token-wise BEFORE their single-token
+     * prefixes so that e.g. "move window 1 10 20" does not hit "move". */
+    if (cmd_equals(cmd, "open") && (k_strcmp(arg1, "window") == 0 || k_strcmp(arg1, "application") == 0)) {
+        cmd_open_window(arg2);
     }
-    else if (cmd_equals(cmd, "open window") || cmd_equals(cmd, "open application")) {
-        char* app_id = arg1;
-        while (*app_id && *app_id != ' ') app_id++;
-        if (*app_id == ' ') {
-            *app_id = 0;
-            app_id++;
-            while (*app_id == ' ') app_id++;
-        }
-        cmd_open_window(app_id);
+    else if (cmd_equals(cmd, "close") && k_strcmp(arg1, "window") == 0) {
+        cmd_close_window(arg2);
     }
-    else if (cmd_equals(cmd, "close window")) {
-        cmd_close_window(arg1);
-    }
-    else if (cmd_equals(cmd, "move window")) {
-        char* win_id = arg1;
-        char* x_str = arg2;
+    else if (cmd_equals(cmd, "move") && k_strcmp(arg1, "window") == 0) {
+        char* win_id = arg2;
+        char* x_str = win_id;
         while (*x_str && *x_str != ' ') x_str++;
         if (*x_str == ' ') {
             *x_str = 0;
@@ -1004,23 +958,45 @@ static void process_command(char* cmd) {
             terminal_writestring_nl("  Usage: move window <id> <x> <y>");
         }
     }
-    else if (cmd_equals(cmd, "focus window")) {
-        cmd_focus_window(arg1);
+    else if (cmd_equals(cmd, "focus") && k_strcmp(arg1, "window") == 0) {
+        cmd_focus_window(arg2);
     }
-    else if (cmd_equals(cmd, "list windows") || cmd_equals(cmd, "show windows")) {
+    else if ((cmd_equals(cmd, "list") || cmd_equals(cmd, "show")) && k_strcmp(arg1, "windows") == 0) {
         cmd_list_windows();
     }
-    else if (cmd_equals(cmd, "show processes")) {
+    else if (cmd_equals(cmd, "show") && k_strcmp(arg1, "processes") == 0) {
         cmd_ps();
     }
-    else if (cmd_equals(cmd, "current date time") || cmd_equals(cmd, "date time")) {
+    else if (cmd_equals(cmd, "show") && k_strcmp(arg1, "memory") == 0) {
+        cmd_show_memory();
+    }
+    else if (cmd_equals(cmd, "system") && k_strcmp(arg1, "information") == 0) {
+        cmd_system_info();
+    }
+    else if (cmd_equals(cmd, "current") && k_strcmp(arg1, "date") == 0 && k_strcmp(arg2, "time") == 0) {
         cmd_date();
+    }
+    else if (cmd_equals(cmd, "date") && k_strcmp(arg1, "time") == 0) {
+        cmd_date();
+    }
+    else if (cmd_equals(cmd, "make") && k_strcmp(arg1, "directory") == 0) {
+        cmd_mkdir(arg2);
+    }
+    else if (cmd_equals(cmd, "information") && k_strcmp(arg1, "about") == 0) {
+        cmd_file_info(arg2);
+    }
+    else if (cmd_equals(cmd, "clear") && k_strcmp(arg1, "screen") == 0) {
+        terminal_clear();
+    }
+    else if (cmd_equals(cmd, "go") && k_strcmp(arg1, "to") == 0) {
+        cmd_chdir(arg2);
+    }
+    /* Single-word commands */
+    else if (cmd_equals(cmd, "list")) {
+        cmd_list(arg1);
     }
     else if (cmd_equals(cmd, "create")) {
         cmd_create_file(arg1);
-    }
-    else if (cmd_equals(cmd, "make directory")) {
-        cmd_mkdir(arg1);
     }
     else if (cmd_equals(cmd, "delete")) {
         cmd_delete(arg1);
@@ -1043,14 +1019,8 @@ static void process_command(char* cmd) {
     else if (cmd_equals(cmd, "read")) {
         cmd_read_file(arg1);
     }
-    else if (cmd_equals(cmd, "information about")) {
-        cmd_file_info(arg1);
-    }
     else if (cmd_equals(cmd, "find")) {
         cmd_find(arg1);
-    }
-    else if (cmd_equals(cmd, "go") && k_strcmp(arg1, "to") == 0) {
-        cmd_chdir(arg2);
     }
     else if (cmd_equals(cmd, "here")) {
         cmd_pwd();
@@ -1064,21 +1034,12 @@ static void process_command(char* cmd) {
     else if (cmd_equals(cmd, "echo")) {
         cmd_echo(arg1);
     }
-    else if (cmd_equals(cmd, "show memory")) {
-        cmd_show_memory();
-    }
-    else if (cmd_equals(cmd, "system information")) {
-        cmd_system_info();
-    }
     else if (cmd_equals(cmd, "version")) {
         cmd_version();
     }
-    else if (cmd_equals(cmd, "clear screen")) {
-        terminal_clear();
-    }
     /* New aliases and short commands */
     else if (cmd_equals(cmd, "ls")) {
-        cmd_list();
+        cmd_list(arg1);
     }
     else if (cmd_equals(cmd, "cat")) {
         cmd_read_file(arg1);
@@ -1131,6 +1092,15 @@ static void process_command(char* cmd) {
     else if (cmd_equals(cmd, "history")) {
         cmd_history();
     }
+    else if (cmd_equals(cmd, "mount")) {
+        cmd_mount();
+    }
+    else if (cmd_equals(cmd, "df")) {
+        cmd_df();
+    }
+    else if (cmd_equals(cmd, "ps")) {
+        cmd_ps();
+    }
     else if (cmd_equals(cmd, "clear")) {
         cmd_clear();
     }
@@ -1145,6 +1115,42 @@ static void process_command(char* cmd) {
     }
 }
 
+static void process_command(char* cmd) {
+    cmd = k_trim(cmd);
+    if (k_strlen(cmd) == 0) return;
+
+    /* Natural-language layer: translate English-like phrases such as
+     * "list files in documents" or "write hello world to notes.txt"
+     * into the canonical (verb, arg1, arg2) triple. If the phrase is
+     * not recognized or is ambiguous, fall through to the plain
+     * token-based parser so existing syntax keeps working. */
+    char nl_cmd[32];
+    char nl_arg1[256];
+    char nl_arg2[256];
+    if (nl_parse(cmd, nl_cmd, nl_arg1, nl_arg2) == 0) {
+        dispatch(nl_cmd, nl_arg1, nl_arg2);
+        return;
+    }
+
+    char* arg1 = cmd;
+    while (*arg1 && *arg1 != ' ') arg1++;
+    if (*arg1 == ' ') {
+        *arg1 = 0;
+        arg1++;
+        while (*arg1 == ' ') arg1++;
+    }
+
+    char* arg2 = arg1;
+    while (*arg2 && *arg2 != ' ') arg2++;
+    if (*arg2 == ' ') {
+        *arg2 = 0;
+        arg2++;
+        while (*arg2 == ' ') arg2++;
+    }
+
+    dispatch(cmd, arg1, arg2);
+}
+
 void shell_run(void) {
     char cmd_buffer[MAX_CMD_LEN];
     int pos = 0;
@@ -1153,7 +1159,7 @@ void shell_run(void) {
     ui_command_init();
 
     terminal_clear();
-    terminal_writestring_nl("Plan 0 v0.4.1");
+    terminal_writestring_nl(PLAN0_FULL_NAME);
     terminal_writestring_nl("Filesystem ready.");
     terminal_writestring_nl("Unified UI system initialized.");
     terminal_writestring_nl("Type 'help' for commands.\n");
@@ -1163,8 +1169,8 @@ void shell_run(void) {
 
         pos = 0;
         while (1) {
-            if (ps2_keyboard_has_key()) {
-                char c = ps2_keyboard_getc();
+            if (keyboard_has_key()) {
+                char c = keyboard_getc();
 
                 if (c == '\n') {
                     terminal_putchar('\n');

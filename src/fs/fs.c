@@ -14,7 +14,6 @@
 static fs_boot_sector_t* boot_sector = 0;
 static uint8_t* mft_zone = 0;
 static uint8_t* cluster_bitmap = 0;
-static uint64_t current_time = 0;
 
 /* MFT reserved entries */
 #define MFT_MFT          0  /* $MFT */
@@ -133,21 +132,36 @@ static void* find_attr(mft_header_t* entry, uint32_t attr_type) {
         if (attr->type == ATTR_END || attr->type == attr_type) {
             return (attr->type == attr_type) ? attr : 0;
         }
+        /* Guard against corrupt/garbage lengths to avoid an infinite walk */
+        if (attr->length < sizeof(attr_header_t)) break;
         ptr += attr->length;
     }
     return 0;
 }
 
+/* Return a pointer to an attribute's payload struct (past the header).
+ * find_attr() returns the attr_header_t; the filename struct lives right
+ * after it. Callers that need the struct MUST use this helper. */
+static void* find_attr_payload(mft_header_t* entry, uint32_t attr_type) {
+    attr_header_t* attr = (attr_header_t*)find_attr(entry, attr_type);
+    if (!attr) return 0;
+    return (void*)((uint8_t*)attr + sizeof(attr_header_t));
+}
+
 /* Add index root attribute to directory */
 static void add_index_root_attr(mft_header_t* entry) {
-    index_root_t* ir = (index_root_t*)((uint8_t*)entry + entry->used_size + sizeof(attr_header_t));
+    /* Attributes are appended over the trailing ATTR_END marker left at
+     * used_size - 8 by init_mft_entry / the previous attribute. */
+    uint8_t* base = (uint8_t*)entry + entry->used_size - 8;
+
+    index_root_t* ir = (index_root_t*)(base + sizeof(attr_header_t));
     
     ir->attr_type = ATTR_FILENAME;
     ir->collation_rule = 0;
     ir->index_alloc_size = FS_CLUSTER_SIZE;
     ir->clusters_per_index = 1;
     
-    attr_header_t* attr = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+    attr_header_t* attr = (attr_header_t*)base;
     attr->type = ATTR_INDEX_ROOT;
     attr->length = sizeof(attr_header_t) + sizeof(index_root_t);
     attr->non_resident = 0;
@@ -156,13 +170,11 @@ static void add_index_root_attr(mft_header_t* entry) {
     attr->flags = 0;
     attr->instance = entry->next_attr_id++;
     
-    entry->used_size += attr->length;
-    
-    /* Update end marker */
-    attr_header_t* end = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+    /* Move the end marker to just after the new attribute */
+    attr_header_t* end = (attr_header_t*)(base + attr->length);
     end->type = ATTR_END;
     end->length = 8;
-    entry->used_size += 8;
+    entry->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)entry);
 }
 
 /* Add directory entry to parent's index */
@@ -173,13 +185,30 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
     
     index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
     
-    /* Create new index entry */
-    index_entry_t* idx_entry = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
+    /* Walk existing index entries to find the last one */
+    index_entry_t* last = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
+    uint8_t* walk_end = (uint8_t*)index_attr + index_attr->length;
+    
+    while ((uint8_t*)last + sizeof(index_entry_t) <= walk_end) {
+        if (last->flags & 0x01) {
+            /* Already indexed? */
+            if (last->mft_ref == child_mft) return;
+            /* Demote the previous last entry, then append after it */
+            last->flags &= (uint16_t)~0x01;
+            break;
+        }
+        if (last->length < sizeof(index_entry_t)) break;
+        last = (index_entry_t*)((uint8_t*)last + last->length);
+    }
+    
+    /* New entry goes at the current end of the index (this is where the
+     * trailing end-of-index marker sat; it gets overwritten and re-added) */
+    index_entry_t* idx_entry = (index_entry_t*)((uint8_t*)last + last->length);
     
     idx_entry->mft_ref = child_mft;
     idx_entry->length = sizeof(index_entry_t);
     idx_entry->attr_type = ATTR_FILENAME;
-    idx_entry->flags = 0x01; /* Last entry for now */
+    idx_entry->flags = 0x01; /* Last entry */
     idx_entry->reserved = 0;
     
     /* Copy filename */
@@ -202,12 +231,14 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
         fn->filename[i] = name[i];
     }
     
-    /* Update index attribute length */
+    /* Extend the index attribute to cover the new entry */
     index_attr->length += sizeof(index_entry_t);
     
-    /* Update MFT entry used size */
-    mft_header_t* entry = (mft_header_t*)((uint8_t*)parent_dir - parent_dir->seq_attr_offset + sizeof(mft_header_t));
-    entry->used_size += sizeof(index_entry_t);
+    /* Add a fresh end-of-attributes marker right after the new entry */
+    attr_header_t* end = (attr_header_t*)((uint8_t*)idx_entry + sizeof(index_entry_t));
+    end->type = ATTR_END;
+    end->length = 8;
+    parent_dir->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)parent_dir);
 }
 
 /* Initialize a new MFT entry */
@@ -230,7 +261,11 @@ static void init_mft_entry(mft_header_t* entry, uint64_t mft_num, uint16_t flags
 
 /* Add filename attribute to entry */
 static void add_filename_attr(mft_header_t* entry, const char* name, uint64_t parent) {
-    attr_filename_t* fn = (attr_filename_t*)((uint8_t*)entry + entry->used_size + sizeof(attr_header_t));
+    /* Attributes are appended over the trailing ATTR_END marker left at
+     * used_size - 8 by init_mft_entry. */
+    uint8_t* base = (uint8_t*)entry + entry->used_size - 8;
+
+    attr_filename_t* fn = (attr_filename_t*)(base + sizeof(attr_header_t));
     
     uint32_t name_len = 0;
     while (name[name_len]) name_len++;
@@ -250,7 +285,7 @@ static void add_filename_attr(mft_header_t* entry, const char* name, uint64_t pa
         fn->filename[i] = name[i];
     }
     
-    attr_header_t* attr = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+    attr_header_t* attr = (attr_header_t*)base;
     attr->type = ATTR_FILENAME;
     attr->length = sizeof(attr_header_t) + sizeof(attr_filename_t);
     attr->non_resident = 0;
@@ -259,12 +294,11 @@ static void add_filename_attr(mft_header_t* entry, const char* name, uint64_t pa
     attr->flags = 0;
     attr->instance = entry->next_attr_id++;
     
-    entry->used_size += attr->length;
-    
-    /* Update end marker */
-    attr_header_t* end = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+    /* Move the end marker to just after the new attribute */
+    attr_header_t* end = (attr_header_t*)(base + attr->length);
     end->type = ATTR_END;
     end->length = 8;
+    entry->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)entry);
 }
 
 /* Format filesystem */
@@ -279,7 +313,7 @@ int fs_format(uint64_t disk_size) {
     boot_sector->total_sectors = disk_size / FS_SECTOR_SIZE;
     boot_sector->sectors_per_cluster = FS_SECTORS_PER_CLUSTER;
     boot_sector->mft_start = 8;  /* MFT starts at cluster 8 */
-    boot_sector->mft_size = 4096; /* 4096 MFT entries */
+    boot_sector->mft_size = 128; /* 128 MFT entries (512KB) - enough for the UI state graph; keeps format/mount fast */
     boot_sector->mft_entry_size = MFT_ENTRY_SIZE;
     boot_sector->data_start = boot_sector->mft_start + boot_sector->mft_size;
     boot_sector->total_clusters = (boot_sector->total_sectors - boot_sector->data_start) / FS_SECTORS_PER_CLUSTER;
@@ -306,12 +340,15 @@ int fs_format(uint64_t disk_size) {
     add_filename_attr(root, "", MFT_ROOT);
     add_index_root_attr(root);
     
-    /* Write boot sector */
-    disk_write(0, 1, boot_sector);
-    
-    /* Write MFT */
-    for (uint64_t i = 0; i < boot_sector->mft_size; i++) {
-        write_mft_entry(i, mft_zone + i * MFT_ENTRY_SIZE);
+    /* Write to disk only if disk is present */
+    if (disk_is_ready()) {
+        /* Write boot sector */
+        disk_write(0, 1, boot_sector);
+
+        /* Write MFT */
+        for (uint64_t i = 0; i < boot_sector->mft_size; i++) {
+            write_mft_entry(i, mft_zone + i * MFT_ENTRY_SIZE);
+        }
     }
     
     return 0;
@@ -360,7 +397,7 @@ static uint64_t find_file(const char* path) {
         
         /* Search in current directory */
         mft_header_t* entry = (mft_header_t*)(mft_zone + current * MFT_ENTRY_SIZE);
-        attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+        attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
         if (!fn) return (uint64_t)-1;
         
         /* Scan directory entries (simplified - linear search) */
@@ -369,7 +406,7 @@ static uint64_t find_file(const char* path) {
             mft_header_t* child = (mft_header_t*)(mft_zone + i * MFT_ENTRY_SIZE);
             if (!(child->flags & MFT_FLAG_IN_USE)) continue;
             
-            attr_filename_t* child_fn = find_attr(child, ATTR_FILENAME);
+            attr_filename_t* child_fn = (attr_filename_t*)find_attr_payload(child, ATTR_FILENAME);
             if (!child_fn) continue;
             
             if (child_fn->parent_mft == current) {
@@ -399,8 +436,8 @@ static uint64_t find_file(const char* path) {
 fs_file_t* fs_open(const char* path, int mode) {
     uint64_t mft_num = find_file(path);
     
-    if (mft_num == (uint64_t)-1 && mode == 1) {
-        /* Create new file */
+    if (mft_num == (uint64_t)-1 && mode != 0) {
+        /* Create new file (mode 1 = write, mode 2 = append) */
         mft_num = alloc_mft_entry();
         if (mft_num == (uint64_t)-1) return 0;
         
@@ -451,7 +488,7 @@ fs_file_t* fs_open(const char* path, int mode) {
     file->mode = (uint8_t)mode;
     
     mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
-    attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
     if (fn) {
         file->size = fn->real_size;
     } else {
@@ -549,6 +586,11 @@ size_t fs_read(fs_file_t* file, void* buffer, size_t size) {
 size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
     if (!file || !buffer || size == 0) return 0;
     
+    /* Append mode: write at the end of the existing data */
+    if (file->mode == 2) {
+        file->position = file->size;
+    }
+    
     mft_header_t* entry = (mft_header_t*)(mft_zone + file->mft_number * MFT_ENTRY_SIZE);
     
     /* Find or create data attribute */
@@ -557,8 +599,8 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         /* Determine if file should be non-resident */
         size_t available_space = MFT_ENTRY_SIZE - entry->used_size - sizeof(attr_header_t) - 8;
         if (size > available_space) {
-            /* Create non-resident data attribute */
-            data_attr = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+            /* Create non-resident data attribute (over the trailing ATTR_END) */
+            data_attr = (attr_header_t*)((uint8_t*)entry + entry->used_size - 8);
             data_attr->type = ATTR_DATA;
             data_attr->non_resident = 1;
             data_attr->length = sizeof(attr_header_t) + sizeof(attr_nonresident_t);
@@ -574,26 +616,25 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
             nr->real_size = 0;
             nr->initialized_size = 0;
             
-            entry->used_size += sizeof(attr_header_t) + sizeof(attr_nonresident_t);
-            
-            /* Add end marker */
-            attr_header_t* end = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+            /* End marker initially right after the non-resident header; the
+             * cluster-allocation loop below extends the attribute over the
+             * data runs and re-places the marker. */
+            attr_header_t* end = (attr_header_t*)((uint8_t*)data_attr + data_attr->length);
             end->type = ATTR_END;
             end->length = 8;
-            entry->used_size += 8;
+            entry->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)entry);
         } else {
-            /* Create resident data attribute */
-            data_attr = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+            /* Create resident data attribute (over the trailing ATTR_END) */
+            data_attr = (attr_header_t*)((uint8_t*)entry + entry->used_size - 8);
             data_attr->type = ATTR_DATA;
             data_attr->non_resident = 0;
             data_attr->length = sizeof(attr_header_t);
-            entry->used_size += sizeof(attr_header_t);
             
-            /* Add end marker */
-            attr_header_t* end = (attr_header_t*)((uint8_t*)entry + entry->used_size);
+            /* End marker moves to just after the attribute */
+            attr_header_t* end = (attr_header_t*)((uint8_t*)data_attr + sizeof(attr_header_t));
             end->type = ATTR_END;
             end->length = 8;
-            entry->used_size += 8;
+            entry->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)entry);
         }
     }
     
@@ -656,6 +697,14 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
             bytes_written += to_write;
         }
         
+        /* Size the attribute to include the data runs and re-place the
+         * end-of-attributes marker right after them */
+        data_attr->length = nr->run_offset + (uint32_t)(clusters_allocated * sizeof(data_run_t));
+        attr_header_t* end = (attr_header_t*)((uint8_t*)data_attr + data_attr->length);
+        end->type = ATTR_END;
+        end->length = 8;
+        entry->used_size = (uint32_t)((uint8_t*)end + 8 - (uint8_t*)entry);
+
         /* Update non-resident header */
         nr->allocated_size = clusters_allocated * FS_CLUSTER_SIZE;
         nr->real_size = file->position + bytes_written;
@@ -665,7 +714,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         file->position += bytes_written;
         
         /* Update file size */
-        attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+        attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
         if (fn) {
             fn->real_size = file->position;
             fn->modify_time = get_time();
@@ -779,7 +828,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
             file->position += bytes_written;
             
             /* Update file size */
-            attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+            attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
             if (fn) {
                 fn->real_size = file->position;
                 fn->modify_time = get_time();
@@ -803,7 +852,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         data_attr->length = sizeof(attr_header_t) + file->position;
         
         /* Update file size */
-        attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+        attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
         if (fn) {
             fn->real_size = file->position;
             fn->modify_time = get_time();
@@ -830,6 +879,42 @@ uint64_t fs_get_free_space(void) {
 /* Get total space */
 uint64_t fs_get_total_space(void) {
     return boot_sector->total_clusters * FS_CLUSTER_SIZE;
+}
+
+/* Walk the MFT and cluster bitmap to produce usage statistics. */
+int fs_get_stats(fs_stats_t* stats) {
+    if (!stats || !boot_sector || !mft_zone) return -1;
+
+    uint64_t free_clusters = 0;
+    for (uint64_t i = 0; i < boot_sector->total_clusters; i++) {
+        uint64_t byte = i / 8;
+        uint8_t bit = i % 8;
+        if (!(cluster_bitmap[byte] & (1 << bit))) {
+            free_clusters++;
+        }
+    }
+
+    uint64_t total = boot_sector->total_clusters * FS_CLUSTER_SIZE;
+    uint64_t freeb = free_clusters * FS_CLUSTER_SIZE;
+
+    uint32_t files = 0;
+    uint32_t dirs = 0;
+    for (uint64_t i = MFT_FIRST_USER; i < boot_sector->mft_size; i++) {
+        mft_header_t* entry = (mft_header_t*)(mft_zone + i * MFT_ENTRY_SIZE);
+        if (!(entry->flags & MFT_FLAG_IN_USE)) continue;
+        if (entry->flags & MFT_FLAG_DIRECTORY) {
+            dirs++;
+        } else {
+            files++;
+        }
+    }
+
+    stats->total_bytes = total;
+    stats->free_bytes = freeb;
+    stats->used_bytes = total - freeb;
+    stats->file_count = files;
+    stats->dir_count = dirs;
+    return 0;
 }
 
 /* Create directory */
@@ -930,7 +1015,7 @@ int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, 
             mft_header_t* entry = (mft_header_t*)(mft_zone + i * MFT_ENTRY_SIZE);
             if (!(entry->flags & MFT_FLAG_IN_USE)) continue;
             
-            attr_filename_t* fn = find_attr(entry, ATTR_FILENAME);
+            attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
             if (!fn) continue;
             
             if (fn->parent_mft == dir_mft) {
@@ -972,7 +1057,10 @@ int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, 
                     }
                     name[len] = 0;
                     
-                    callback(name, file_entry->flags & MFT_FLAG_DIRECTORY, entry->filename.real_size);
+                    /* Report the file's real size from its own MFT entry */
+                    attr_filename_t* ffn = (attr_filename_t*)find_attr_payload(file_entry, ATTR_FILENAME);
+                    callback(name, file_entry->flags & MFT_FLAG_DIRECTORY,
+                             ffn ? ffn->real_size : entry->filename.real_size);
                     count++;
                 }
             }
@@ -990,7 +1078,10 @@ int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, 
                 }
                 name[len] = 0;
                 
-                callback(name, file_entry->flags & MFT_FLAG_DIRECTORY, entry->filename.real_size);
+                /* Report the file's real size from its own MFT entry */
+                attr_filename_t* ffn = (attr_filename_t*)find_attr_payload(file_entry, ATTR_FILENAME);
+                callback(name, file_entry->flags & MFT_FLAG_DIRECTORY,
+                         ffn ? ffn->real_size : entry->filename.real_size);
                 count++;
             }
         }

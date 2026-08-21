@@ -136,6 +136,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 - Add `part.c` to disk I/O path for partitioned access
 - Add QEMU integration tests to CI pipeline
 - ~~Add kernel heap leak detection (magic number validation)~~ DONE — `kheap_validate()`/`kheap_dump()` implemented, `kheap_get_stats()` complete, exposed as `/proc/heap` (2026-08-21)
+- ~~Filesystem usage accounting / honest df~~ DONE — `fs_get_stats()` (cluster bitmap + MFT) and `ramfs_get_stats()` implemented; `df` reports real size/used/avail plus live file/dir counts; 14-test ramfs suite added (2026-08-21)
 
 ### Medium-term
 - Add AHCI/SATA driver for modern disk access

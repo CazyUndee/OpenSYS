@@ -208,4 +208,15 @@ uint64_t fs_get_free_space(void);
 uint64_t fs_get_total_space(void);
 void fs_dump_info(void);
 
+typedef struct {
+    uint64_t total_bytes;   /* total capacity from cluster bitmap */
+    uint64_t free_bytes;    /* free clusters * cluster size */
+    uint64_t used_bytes;    /* total - free */
+    uint32_t file_count;    /* in-use user MFT entries that are files */
+    uint32_t dir_count;     /* in-use user MFT entries that are dirs */
+} fs_stats_t;
+
+/* Walk the MFT and cluster bitmap to produce usage statistics. */
+int fs_get_stats(fs_stats_t* stats);
+
 #endif

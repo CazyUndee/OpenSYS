@@ -714,3 +714,50 @@ STATE.md's near-term backlog listed "kernel heap leak detection (magic number va
 - Host tests: **93/93 pass** (90 previous + 3 new: 2 vfile heap + 1 kheap stats layout)
 - `/proc/heap` verified end-to-end under QEMU/WHPX (7/7 checks pass)
 - Heap leak-detection infrastructure now live: any magic/flag/contiguity corruption is detectable via `kheap_validate()` and visible through `/proc/heap`
+
+---
+
+## 2026-08-21 — Filesystem Usage Accounting (df fix) & ramfs Stats
+
+### Context
+HISTORY's earlier session logs showed `df` reporting RAM totals as if they were ramfs usage ("ramfs 130944 KB used" while the filesystem was nearly empty). Root cause: `cmd_df` read `pmm_get_total()/pmm_get_free()` and labeled them as the ramfs row. Additionally, the shell's actual file operations go through `fs_*` (the NTFS-style fs.c, kept in memory when no disk is attached) — not ramfs — and ramfs was never even initialized in the kernel.
+
+### Changes Made
+
+#### `src/fs/ramfs.c` + `include/ramfs.h`
+- Added `ramfs_get_stats(ramfs_stats_t*)` — walks the file table and reports total capacity (1 MB logical quota), used bytes (sum of file sizes), free bytes, allocated heap bytes, file and directory counts.
+
+#### `src/fs/fs.c` + `include/fs.h`
+- Added `fs_get_stats(fs_stats_t*)` — walks the cluster bitmap (free/total/used bytes) and the MFT (in-use file vs directory counts). This is the filesystem the shell actually reads/writes.
+
+#### `src/ui/shell.c`
+- `cmd_df` now reports the real filesystem: fs.c row from `fs_get_stats()` (size/used/avail + live file & directory counts), falling back to ramfs stats only when fs is unmounted. vfile row unchanged.
+
+#### Tests
+- **`tests/unit/test_ramfs.c`** (NEW) — 14 host tests compiling the real ramfs.c against mocked kmalloc/kfree: init, create/find, mkdir, write/read round-trip, buffer growth, append, offset reads, read-past-EOF, delete, missing-delete, stats empty/usage-tracking/dir counting, MAX_FILES limit.
+- **`tests/unit/test_filesystem.c`** — 1 new test asserting `fs_stats_t` field layout.
+- `tests/Makefile` — added `ramfs.c` to REAL_SRCS and `test_ramfs.c` to unit sources.
+- `tests/test_runner.c` — registered the new RAM Filesystem suite.
+
+### Verified under QEMU (`-accel whpx`)
+```
+> df                                  (before any files)
+  fs              102332 KB    0 KB    102332 KB    /
+  0 files, 0 directories
+
+> create hello.txt / write hello.txt hello world / df
+  fs              102332 KB    0 KB    102332 KB    /
+  1 files, 0 directories
+
+> mkdir docs / df
+  1 files, 1 directories
+
+> rm hello.txt / df
+  0 files, 1 directories
+```
+File/dir counts track create/mkdir/rm live. Used stays 0 KB because small files are stored resident inside the MFT (no clusters allocated) — accurate for this filesystem's design.
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **108/108 pass** (93 previous + 14 ramfs + 1 fs_stats layout)
+- All df/accounting checks verified end-to-end under QEMU/WHPX (8/8 pass)
