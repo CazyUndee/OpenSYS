@@ -59,7 +59,7 @@ jobs:
             fi
           done
 
-          for src in fs vfs ramfs; do
+          for src in fs vfs ramfs path vfile; do
             if [ -f "src/fs/${src}.c" ]; then
               gcc -m64 -c "src/fs/${src}.c" -o "obj/fs/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
@@ -67,7 +67,7 @@ jobs:
             fi
           done
 
-          for src in gdt idt tss pic timer cpu_exceptions; do
+          for src in gdt idt tss pic timer interrupt_handlers; do
             if [ -f "src/arch/${src}.c" ]; then
               gcc -m64 -c "src/arch/${src}.c" -o "obj/arch/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
@@ -75,7 +75,7 @@ jobs:
             fi
           done
 
-          for src in disk vga hid input usb_host serial io partition_table rtc pci ehci net; do
+          for src in disk vga hid input ps2_keyboard usb_host serial io part partition_table rtc pci ehci net; do
             if [ -f "src/drivers/${src}.c" ]; then
               gcc -m64 -c "src/drivers/${src}.c" -o "obj/drivers/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
@@ -91,7 +91,7 @@ jobs:
             fi
           done
 
-          for src in ui_command ui_state shell; do
+          for src in ui_command ui_state shell nl_parser; do
             if [ -f "src/ui/${src}.c" ]; then
               gcc -m64 -c "src/ui/${src}.c" -o "obj/ui/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \
@@ -107,8 +107,8 @@ jobs:
 
       - name: Show kernel
         run: |
-ls -la bin/kernel0.bin
-file bin/kernel0.bin
+          ls -la bin/kernel0.bin
+          file bin/kernel0.bin
 
       - name: Upload kernel
         uses: actions/upload-artifact@v4
@@ -136,11 +136,33 @@ file bin/kernel0.bin
           name: os-iso
           path: bin/os.iso
 
+  host-tests:
+    name: Host Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc
+
+      - name: Build test runner
+        run: |
+          cd tests
+          make clean && make all
+
+      - name: Run full host test suite
+        run: |
+          cd tests
+          ./bin/test_runner
+
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    needs: build
-    if: always() && needs.build.result == 'success'
+    needs: [build, host-tests]
+    if: always() && needs.build.result == 'success' && needs.host-tests.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -154,6 +176,12 @@ file bin/kernel0.bin
         uses: actions/download-artifact@v4
         with:
           name: kernel-bin
+          path: bin
+
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: os-iso
           path: bin
 
       - name: Verify project structure
@@ -191,10 +219,23 @@ file bin/kernel0.bin
           grep -q "BOOTDIR = boot" Makefile || exit 1
           grep -q "linker/linker.ld" Makefile || exit 1
 
-      - name: Basic boot test
+      - name: Boot test (GRUB ISO)
         run: |
-timeout 10s qemu-system-x86_64 -kernel bin/kernel0.bin -display none -serial stdio -m 128M 2>&1 | tee boot_test.log || true
-grep -qi "plan.0\|plan0\|kernel0" boot_test.log && echo "✅ Branding detected" || echo "? Branding not detected (informational)"
+          timeout 60s qemu-system-x86_64 -cdrom bin/os.iso -display none -serial stdio -m 128M -no-reboot 2>&1 | tee boot_test.log || true
+          echo "=== Boot log (last 20 lines) ==="
+          tail -20 boot_test.log
+          echo "=== Checks ==="
+          if grep -qi "Starting Shell" boot_test.log; then
+            echo "✅ Shell reached"
+          else
+            echo "✗ Shell NOT reached"
+            exit 1
+          fi
+          if grep -q "> " boot_test.log; then
+            echo "✅ Shell prompt visible"
+          else
+            echo "? Shell prompt not visible (informational)"
+          fi
 
   release:
     name: Release

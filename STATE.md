@@ -80,7 +80,8 @@ Phase 9: Stability & Testing (FUNCTIONAL)
   ✓ Test framework uses longjmp for proper failure tracking
   ✓ Mock implementations for kernel functions (kmalloc, PMM, etc.)
   ✓ QEMU boot validation script (tools/qemu_boot_test.sh)
-  ✗ No QEMU integration tests automated in CI
+  ✓ Host test suite (124 tests) runs in CI and gates the verify job
+  ✓ GRUB-ISO boot test in CI gates on reaching the shell (Starting Shell)
   ✗ No memory leak detection
   ✗ No kernel assertions/debug infrastructure
 ```
@@ -134,7 +135,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ### Near-term
 - Integrate ramfs with VFS (currently ramfs is hardcoded in VFS)
 - Add `part.c` to disk I/O path for partitioned access
-- Add QEMU integration tests to CI pipeline
+- ~~Add QEMU integration tests to CI pipeline~~ DONE — CI now runs the full 124-test host suite (`host-tests` job gates `verify`) and the boot test is a hard gate booting the GRUB ISO (`-cdrom bin/os.iso`) and requiring `Starting Shell` in serial output; `tools/qemu_boot_test.sh` fixed for the relocated toolchain (2026-08-21)
 - ~~Add kernel heap leak detection (magic number validation)~~ DONE — `kheap_validate()`/`kheap_dump()` implemented, `kheap_get_stats()` complete, exposed as `/proc/heap` (2026-08-21)
 - ~~Filesystem usage accounting / honest df~~ DONE — `fs_get_stats()` (cluster bitmap + MFT) and `ramfs_get_stats()` implemented; `df` reports real size/used/avail plus live file/dir counts; 14-test ramfs suite added (2026-08-21)
 - ~~Wire VFS into boot / live mount table~~ DONE — `ramfs_init()`+`vfs_init()` now called at boot (VFS was dead code); `vfs_mount` is idempotent; `vfs_mount_count()`/`vfs_get_mount()` accessors added; `/proc/mounts` and `mount` read the real VFS mount table (2026-08-21)

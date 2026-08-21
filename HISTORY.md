@@ -912,3 +912,37 @@ fd  Type       Size
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: **124/124 pass** (119 previous + 5 fd-introspection tests)
 - fd introspection verified under QEMU/WHPX (4/4 checks pass)
+
+---
+
+## 2026-08-21 — CI: Host Test Suite Gating + GRUB ISO Boot Test
+
+### Context
+The CI pipeline's biggest verification gap: the full host test suite (124 tests) was never run in CI at all, and the "Basic boot test" could never fail (`|| true` + informational grep). Both needed to become real gates.
+
+### Investigation
+- Reconfirmed (as documented in the boot-path session) that `qemu -kernel` + TCG never reaches the kernel on this machine — instruction tracing shows only SeaBIOS executing, the CPU never leaves the reset vector, and QEMU's internal multiboot option-ROM loader never jumps to 0x100000. Both Program Files QEMU 11.0.50 and MSYS2 11.0.1 behave identically under TCG. The same `-kernel` invocation works under WHPX (shell reaches `> ` prompt), so the kernel is not at fault.
+- Because GitHub Actions runners run qemu under TCG (not WHPX), the old `-kernel` boot test would fail in CI for the same environment reason. The robust path is the **GRUB ISO**: the CI already builds `bin/os.iso` with `grub-mkrescue`, and GRUB's own multiboot loader performs the handoff in guest code — accelerator-independent.
+
+### Changes Made
+
+#### `.github/workflows/ci.yml`
+- **New `host-tests` job** — checks out, builds the test runner (`cd tests && make clean && make all`), and runs `./bin/test_runner` (exits non-zero on any failure). This is the first time the full 124-test suite gates CI.
+- **`verify` job** now `needs: [build, host-tests]` and only runs when both succeed.
+- **Boot test rewritten** as a real gate:
+  - Downloads the `os-iso` artifact (previously only the raw kernel).
+  - Boots with `qemu-system-x86_64 -cdrom bin/os.iso -display none -serial stdio -m 128M -no-reboot` (GRUB multiboot path, TCG-safe).
+  - Fails the job unless `Starting Shell` appears in serial output; `> ` prompt is a secondary informational check.
+
+#### `tools/qemu_boot_test.sh`
+- Fixed the stale toolchain path: the D: drive no longer exists (cross-compiler moved to `~/x86_64-elf/bin`). The script now probes `$HOME/x86_64-elf/bin` first, falling back to `/d/tools/x86_64-elf/bin`, and exports the correct PATH for the build step.
+
+### Verification
+- Kernel builds clean (0 compiler warnings, 2 pre-existing informational linker notes).
+- Host suite passes **124/124** from a clean build (`make clean && make all`).
+- Shell boots to `> ` prompt under QEMU/WHPX (serial markers: `Plan 0 v0.4.1`, `Starting Shell`, `Type 'help' for commands.`).
+- GRUB ISO could not be tested locally (no grub-mkrescue on this machine) — the gate runs on CI's Ubuntu runner which installs `grub-pc-bin` + `xorriso` and already builds the ISO in the build job.
+
+### Results
+- CI now gates on: kernel build (gcc, 0 warnings), full 124-test host suite, GRUB-ISO boot reaching the shell.
+- Boot test went from informational-only to a hard gate on `Starting Shell`.
