@@ -456,6 +456,28 @@ int vfs_get_mount(int index, char* out_path) {
     return -1;
 }
 
+/* ========== fd-table introspection ========== */
+
+int vfs_fd_count(void) {
+    fd_table_t* table = get_current_fd_table();
+    if (!table) return 0;
+    return table->count;
+}
+
+/* Fill out_type/out_size for an open fd. Returns 0 on success, -1 if the
+ * fd is not open in the current table. */
+int vfs_fd_info(int fd, int* out_type, size_t* out_size) {
+    fd_table_t* table = get_current_fd_table();
+    if (!table) return -1;
+
+    vfs_node_t* node = fd_table_get(table, fd);
+    if (!node) return -1;
+
+    if (out_type) *out_type = node->type;
+    if (out_size) *out_size = node->size;
+    return 0;
+}
+
 /* ========== FD table ========== */
 
 fd_table_t* fd_table_create(void) {

@@ -668,6 +668,96 @@ static void test_vfs_fd_unlink(void) {
     TEST_PASS();
 }
 
+/* ---- Test: /proc/self/fd introspection ---- */
+
+static void test_vfile_fdinfo_lists_open_fd(void) {
+    vfs_init();
+    ramfs_init();
+
+    /* Open a file so the kernel fd table has an entry */
+    int rfd = ramfs_create("fdx.txt");
+    ASSERT(rfd >= 0, "ramfs create should succeed");
+    ramfs_write(rfd, "abc", 3);
+    int fd = vfs_open("fdx.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should succeed");
+
+    char buf[1024];
+    int len = vfile_read("/proc/self/fdinfo", buf, sizeof(buf));
+    ASSERT(len > 0, "fdinfo should return data");
+    buf[len] = 0;
+    ASSERT(strstr(buf, "fd  Type") != NULL, "fdinfo should have a header");
+    ASSERT(strstr(buf, "file") != NULL, "fdinfo should list the open file fd");
+
+    vfs_close(fd);
+    TEST_PASS();
+}
+
+static void test_vfile_fd_dir_lists_fd(void) {
+    vfs_init();
+    ramfs_init();
+    int rfd = ramfs_create("fdy.txt");
+    ramfs_write(rfd, "xyz", 3);
+    int fd = vfs_open("fdy.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should succeed");
+
+    dir_entry_count = 0;
+    int r = vfile_list("/proc/self/fd", count_entries);
+    ASSERT(r == 0, "/proc/self/fd should be a virtual directory");
+    ASSERT(dir_entry_count >= 1, "fd dir should list at least the open fd");
+
+    vfs_close(fd);
+    TEST_PASS();
+}
+
+static void test_vfile_fd_read_through_descriptor(void) {
+    vfs_init();
+    ramfs_init();
+    int rfd = ramfs_create("fdz.txt");
+    ramfs_write(rfd, "through-fd", 10);
+    int fd = vfs_open("fdz.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should succeed");
+
+    char path[32];
+    snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int len = vfile_read(path, buf, sizeof(buf));
+    ASSERT(len > 0, "read through /proc/self/fd/N should return data");
+    ASSERT(strcmp(buf, "through-fd") == 0, "data should read through the fd");
+
+    vfs_close(fd);
+    TEST_PASS();
+}
+
+static void test_vfile_fd_pipe_visible_in_fdinfo(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
+
+    char buf[1024];
+    int len = vfile_read("/proc/self/fdinfo", buf, sizeof(buf));
+    ASSERT(len > 0, "fdinfo should return data");
+    buf[len] = 0;
+    ASSERT(strstr(buf, "pipe-r") != NULL, "fdinfo should list the pipe read end");
+    ASSERT(strstr(buf, "pipe-w") != NULL, "fdinfo should list the pipe write end");
+
+    vfs_close(fds[0]);
+    vfs_close(fds[1]);
+    TEST_PASS();
+}
+
+static void test_vfile_fd_bad_path(void) {
+    vfs_init();
+    char buf[32];
+    ASSERT(vfile_read("/proc/self/fd/notanumber", buf, sizeof(buf)) == -1,
+           "non-numeric fd path should fail");
+    ASSERT(vfile_read("/proc/self/fd/", buf, sizeof(buf)) == -1,
+           "empty fd number should fail");
+    ASSERT(vfile_read("/proc/self/fd/99", buf, sizeof(buf)) == -1,
+           "unopened fd should fail");
+    TEST_PASS();
+}
+
 /* ---- Test: VFS pipes ---- */
 
 static void test_vfs_pipe_roundtrip(void) {
@@ -805,6 +895,13 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_fd_open_read_close", test_vfs_fd_open_read_close);
     test_suite_add_test(&suite, "vfs_fd_write_roundtrip", test_vfs_fd_write_roundtrip);
     test_suite_add_test(&suite, "vfs_fd_unlink", test_vfs_fd_unlink);
+
+    /* /proc/self/fd introspection tests */
+    test_suite_add_test(&suite, "vfile_fdinfo_lists_open_fd", test_vfile_fdinfo_lists_open_fd);
+    test_suite_add_test(&suite, "vfile_fd_dir_lists_fd", test_vfile_fd_dir_lists_fd);
+    test_suite_add_test(&suite, "vfile_fd_read_through_descriptor", test_vfile_fd_read_through_descriptor);
+    test_suite_add_test(&suite, "vfile_fd_pipe_visible_in_fdinfo", test_vfile_fd_pipe_visible_in_fdinfo);
+    test_suite_add_test(&suite, "vfile_fd_bad_path", test_vfile_fd_bad_path);
 
     /* VFS pipe tests */
     test_suite_add_test(&suite, "vfs_pipe_roundtrip", test_vfs_pipe_roundtrip);

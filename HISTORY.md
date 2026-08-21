@@ -871,3 +871,44 @@ Mission priority list calls out pipes/IPC. With the fd table wired (previous ent
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: **119/119 pass** (114 previous + 5 pipe tests)
 - Pipes verified end-to-end under QEMU/WHPX (5/5 checks pass)
+
+---
+
+## 2026-08-21 — /proc/self/fd: Open File Descriptors Through the Filesystem
+
+### Context
+With the fd table real and pipes in place, the canonical Unix introspection interface is exposing open descriptors through the filesystem: `/proc/self/fd/N` (read through a descriptor) plus `/proc/self/fd` and `/proc/self/fdinfo`.
+
+### Changes Made
+
+#### `src/fs/vfs.c` + `include/vfs.h`
+- New introspection accessors: `vfs_fd_count()` (open fds in the current table) and `vfs_fd_info(fd, &type, &size)` (per-fd type/size, -1 for unopened). Works for both the per-process table and the kernel-context fallback table.
+
+#### `src/fs/vfile.c`
+- `/proc/self/fd` — virtual directory listing open descriptor numbers.
+- `/proc/self/fdinfo` — table of open fds (number, type name, size).
+- `/proc/self/fd/<N>` — dynamic virtual file: reading it reads through descriptor N (`vfile_read` falls back to a prefix handler for `/proc/self/fd/`). Type names: file/dir/device/pipe-r/pipe-w.
+- `list_proc_self` now also emits `fd` and `fdinfo`.
+
+#### Tests (`tests/unit/test_vfile.c`)
+5 new host tests: fdinfo lists an open file fd; the fd dir lists open fds; `/proc/self/fd/N` reads through the descriptor (content round-trip); pipe read/write ends appear as pipe-r/pipe-w in fdinfo; bad paths (non-numeric, empty, unopened fd) return -1.
+
+### Verified under QEMU (`-accel whpx`)
+```
+> ls /proc/self
+  0 bytes  pid / name / status
+  [DIR]  fd
+  0 bytes  fdinfo
+
+> read /proc/self/fdinfo
+fd  Type       Size
+--  ---------  ----
+(empty — shell closes its fds immediately; host tests cover populated case)
+
+> pipe   (still works: hello through pipe round-trips)
+```
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **124/124 pass** (119 previous + 5 fd-introspection tests)
+- fd introspection verified under QEMU/WHPX (4/4 checks pass)

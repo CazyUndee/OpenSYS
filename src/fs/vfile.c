@@ -520,6 +520,87 @@ static void list_proc_self(vfile_dir_emit_fn emit) {
     emit("pid", 0, 0);
     emit("name", 0, 0);
     emit("status", 0, 0);
+    emit("fd", 1, 0);
+    emit("fdinfo", 0, 0);
+}
+
+/* ================================================================
+ * /proc/self/fd — open file descriptors of the current context
+ * ================================================================ */
+
+static const char* fd_type_name(int type) {
+    switch (type) {
+        case VFS_TYPE_FILE:       return "file";
+        case VFS_TYPE_DIR:        return "dir";
+        case VFS_TYPE_DEVICE:     return "device";
+        case VFS_TYPE_PIPE_READ:  return "pipe-r";
+        case VFS_TYPE_PIPE_WRITE: return "pipe-w";
+        default:                  return "unknown";
+    }
+}
+
+static void list_self_fd(vfile_dir_emit_fn emit) {
+    int count = vfs_fd_count();
+    for (int fd = 0; fd < VFS_MAX_FDS; fd++) {
+        int type = 0;
+        if (vfs_fd_info(fd, &type, 0) < 0) continue;
+        (void)count;
+        char name[16];
+        int n = 0;
+        if (fd == 0) { name[n++] = '0'; }
+        else {
+            int tmp = fd;
+            char rev[8];
+            int rl = 0;
+            while (tmp > 0) { rev[rl++] = (char)('0' + tmp % 10); tmp /= 10; }
+            for (int i = rl - 1; i >= 0; i--) name[n++] = rev[i];
+        }
+        name[n] = 0;
+        emit(name, 0, 0);
+    }
+}
+
+/* /proc/self/fdinfo — table of open fds (number, type, size) */
+static int gen_self_fdinfo(char* buf, size_t max) {
+    int pos = 0;
+
+    pos += append_str(buf + pos, max - (size_t)pos, "fd  Type       Size\n");
+    pos += append_str(buf + pos, max - (size_t)pos, "--  ---------  ----\n");
+
+    for (int fd = 0; fd < VFS_MAX_FDS; fd++) {
+        int type = 0;
+        size_t size = 0;
+        if (vfs_fd_info(fd, &type, &size) < 0) continue;
+
+        if (fd < 10) buf[pos++] = ' ';
+        pos += append_dec(buf + pos, max - (size_t)pos, (uint64_t)fd);
+        pos += append_str(buf + pos, max - (size_t)pos, "  ");
+        pos += append_str(buf + pos, max - (size_t)pos, fd_type_name(type));
+        for (int j = k_strlen(fd_type_name(type)); j < 9 && (size_t)pos < max - 1; j++) {
+            buf[pos++] = ' ';
+        }
+        pos += append_str(buf + pos, max - (size_t)pos, "  ");
+        pos += append_dec(buf + pos, max - (size_t)pos, (uint64_t)size);
+        buf[pos++] = '\n';
+    }
+
+    return pos;
+}
+
+/* /proc/self/fd/N — reads through the open descriptor N */
+static int gen_self_fd_path(char* buf, size_t max, const char* path) {
+    /* Path is /proc/self/fd/<number> */
+    const char* num = path + k_strlen("/proc/self/fd/");
+    int fd = 0;
+    int started = 0;
+    while (*num >= '0' && *num <= '9') {
+        fd = fd * 10 + (*num - '0');
+        num++;
+        started = 1;
+    }
+    if (!started || *num != 0) return -1;
+
+    return vfs_read(fd, buf, max);
 }
 
 /* ================================================================
@@ -844,6 +925,7 @@ void vfile_init(void) {
     reg_dir("/",             list_root);
     reg_dir("/proc",         list_proc);
     reg_dir("/proc/self",    list_proc_self);
+    reg_dir("/proc/self/fd", list_self_fd);
     reg_dir("/sys",          list_sys);
     reg_dir("/sys/kernel",   list_sys_kernel);
     reg_dir("/sys/hardware", list_sys_hardware);
@@ -872,6 +954,7 @@ void vfile_init(void) {
     reg_file("/proc/self/pid",    gen_self_pid);
     reg_file("/proc/self/name",   gen_self_name);
     reg_file("/proc/self/status", gen_self_status);
+    reg_file("/proc/self/fdinfo", gen_self_fdinfo);
 
     /* /sys/kernel files (read-only) */
     reg_file("/sys/kernel/name",    gen_kernel_name);
@@ -913,6 +996,13 @@ int vfile_read(const char* path, char* buf, size_t max_len) {
             return -1;
         }
     }
+
+    /* Dynamic virtual files: /proc/self/fd/<N> reads through the open
+     * descriptor N of the current context. */
+    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) {
+        return gen_self_fd_path(buf, max_len, path);
+    }
+
     return -1;
 }
 

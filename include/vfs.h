@@ -85,6 +85,10 @@ int vfs_pipe(int fds[2]);
 int vfs_mount_count(void);
 int vfs_get_mount(int index, char* out_path);
 
+/* fd-table introspection (for /proc/self/fd and fdinfo) */
+int vfs_fd_count(void);
+int vfs_fd_info(int fd, int* out_type, size_t* out_size);
+
 fd_table_t* fd_table_create(void);
 void fd_table_destroy(fd_table_t* table);
 int fd_table_alloc(fd_table_t* table, vfs_node_t* node);
