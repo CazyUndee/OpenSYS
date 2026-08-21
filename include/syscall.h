@@ -24,6 +24,8 @@
 #define SYS_MMAP    13
 #define SYS_MUNMAP  14
 #define SYS_PIPE    15
+#define SYS_DUP     16
+#define SYS_DUP2    17
 
 /* Initialize syscall handler */
 void syscall_init(void);

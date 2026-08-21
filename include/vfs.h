@@ -71,6 +71,13 @@ int vfs_close(int fd);
 int vfs_read(int fd, void* buf, size_t size);
 int vfs_write(int fd, const void* buf, size_t size);
 int vfs_seek(int fd, int whence, int offset);
+
+/* Duplicate an open descriptor. vfs_dup picks the lowest free fd;
+ * vfs_dup2 places the copy at exactly newfd, closing any descriptor
+ * already there. Both share the underlying node (and its offset). */
+int vfs_dup(int fd);
+int vfs_dup2(int oldfd, int newfd);
+
 int vfs_mkdir(const char* path);
 int vfs_unlink(const char* path);
 void vfs_list(void (*callback)(const char*, int, uint32_t));

@@ -851,6 +851,98 @@ static void test_vfs_pipe_close_frees_pipe(void) {
     TEST_PASS();
 }
 
+/* ---- Test: VFS dup / dup2 ---- */
+
+static void test_vfs_dup_shared_offset(void) {
+    vfs_init();
+    const char* name = "dup_shared.txt";
+    int fd = vfs_open(name, VFS_O_CREAT | VFS_O_RDWR);
+    ASSERT(fd >= 0, "open/create should succeed");
+
+    const char* payload = "hello dup";
+    ASSERT(vfs_write(fd, payload, (int)strlen(payload)) == (int)strlen(payload),
+           "write should return byte count");
+
+    vfs_seek(fd, VFS_SEEK_SET, 0);
+    int dupfd = vfs_dup(fd);
+    ASSERT(dupfd >= 0, "dup should succeed");
+    ASSERT(dupfd != fd, "dup should return a different fd");
+
+    /* The duplicate shares the node, so reading it advances the
+     * offset for the original too. */
+    char buf[32];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(dupfd, buf, sizeof(buf));
+    ASSERT(n == (int)strlen(payload), "read via dup should return payload");
+    ASSERT(strcmp(buf, payload) == 0, "dup read should match payload");
+
+    /* Original offset moved in step — reading it returns 0 (EOF). */
+    memset(buf, 0, sizeof(buf));
+    ASSERT(vfs_read(fd, buf, sizeof(buf)) == 0, "original offset should have advanced");
+
+    /* Close the original; the duplicate keeps the node alive. */
+    ASSERT(vfs_close(fd) == 0, "close original should succeed");
+    memset(buf, 0, sizeof(buf));
+    ASSERT(vfs_seek(dupfd, VFS_SEEK_SET, 0) == 0, "seek on dup should still work");
+    int n2 = vfs_read(dupfd, buf, sizeof(buf));
+    ASSERT(n2 == (int)strlen(payload), "dup should survive original close");
+    ASSERT(strcmp(buf, payload) == 0, "dup content should persist");
+
+    vfs_close(dupfd);
+    vfs_unlink(name);
+    TEST_PASS();
+}
+
+static void test_vfs_dup2_replaces_target(void) {
+    vfs_init();
+    const char* name_a = "dup2_a.txt";
+    const char* name_b = "dup2_b.txt";
+    int fd_a = vfs_open(name_a, VFS_O_CREAT | VFS_O_RDWR);
+    int fd_b = vfs_open(name_b, VFS_O_CREAT | VFS_O_RDWR);
+    ASSERT(fd_a >= 0 && fd_b >= 0, "both opens should succeed");
+
+    /* dup2(fd_a, fd_b) replaces fd_b's node with fd_a's. */
+    ASSERT(vfs_dup2(fd_a, fd_b) == fd_b, "dup2 should return newfd");
+
+    char buf[32];
+    memset(buf, 0, sizeof(buf));
+    vfs_write(fd_a, "AAA", 3);
+    vfs_seek(fd_b, VFS_SEEK_SET, 0);
+    int n = vfs_read(fd_b, buf, sizeof(buf));
+    ASSERT(n == 3 && strcmp(buf, "AAA") == 0, "fd_b should now read fd_a's file");
+
+    vfs_close(fd_a);
+    vfs_close(fd_b);
+    vfs_unlink(name_a);
+    vfs_unlink(name_b);
+    TEST_PASS();
+}
+
+static void test_vfs_dup2_same_fd_noop(void) {
+    vfs_init();
+    const char* name = "dup2_same.txt";
+    int fd = vfs_open(name, VFS_O_CREAT | VFS_O_RDWR);
+    ASSERT(fd >= 0, "open should succeed");
+
+    /* dup2(fd, fd) is a no-op returning fd. */
+    ASSERT(vfs_dup2(fd, fd) == fd, "dup2 same fd should return it");
+
+    /* Still only one reference — closing once is enough. */
+    ASSERT(vfs_close(fd) == 0, "close should succeed");
+    ASSERT(vfs_fd_info(fd, 0, 0) == -1, "fd should be closed");
+    vfs_unlink(name);
+    TEST_PASS();
+}
+
+static void test_vfs_dup_invalid_fd(void) {
+    vfs_init();
+    ASSERT(vfs_dup(99) == -1, "dup of unopened fd should fail");
+    ASSERT(vfs_dup(-1) == -1, "dup of negative fd should fail");
+    ASSERT(vfs_dup2(1, 99) == -1, "dup2 to out-of-range newfd should fail");
+    ASSERT(vfs_dup2(99, 1) == -1, "dup2 of unopened oldfd should fail");
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -909,6 +1001,12 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_pipe_sequential_reads", test_vfs_pipe_sequential_reads);
     test_suite_add_test(&suite, "vfs_pipe_wrong_end_rejected", test_vfs_pipe_wrong_end_rejected);
     test_suite_add_test(&suite, "vfs_pipe_close_frees_pipe", test_vfs_pipe_close_frees_pipe);
+
+    /* VFS dup/dup2 tests */
+    test_suite_add_test(&suite, "vfs_dup_shared_offset", test_vfs_dup_shared_offset);
+    test_suite_add_test(&suite, "vfs_dup2_replaces_target", test_vfs_dup2_replaces_target);
+    test_suite_add_test(&suite, "vfs_dup2_same_fd_noop", test_vfs_dup2_same_fd_noop);
+    test_suite_add_test(&suite, "vfs_dup_invalid_fd", test_vfs_dup_invalid_fd);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

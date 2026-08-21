@@ -229,6 +229,14 @@ static int sys_pipe(int fds[2]) {
     return vfs_pipe(fds);
 }
 
+static int sys_dup(int fd) {
+    return vfs_dup(fd);
+}
+
+static int sys_dup2(int oldfd, int newfd) {
+    return vfs_dup2(oldfd, newfd);
+}
+
 uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
     switch (num) {
     case SYS_EXIT: return sys_exit(a1);
@@ -247,6 +255,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
     case SYS_MMAP: return sys_mmap(a1, a2, a3);
     case SYS_MUNMAP: return sys_munmap(a1, a2);
     case SYS_PIPE: return sys_pipe((int*)a1);
+    case SYS_DUP: return sys_dup((int)a1);
+    case SYS_DUP2: return sys_dup2((int)a1, (int)a2);
     default: return -1;
     }
 }

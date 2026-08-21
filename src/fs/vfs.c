@@ -383,6 +383,48 @@ int vfs_write(int fd, const void* buf, size_t size) {
     return result;
 }
 
+int vfs_dup(int fd) {
+    fd_table_t* table = get_current_fd_table();
+    if (!table) return -1;
+
+    vfs_node_t* node = fd_table_get(table, fd);
+    if (!node) return -1;
+
+    /* Find the lowest free slot (classic dup semantics). The duplicated
+     * entry shares the same node — and therefore the same file offset —
+     * with the original, exactly like POSIX. */
+    int newfd = fd_table_alloc(table, node);
+    if (newfd < 0) return -1;
+    return newfd;
+}
+
+int vfs_dup2(int oldfd, int newfd) {
+    fd_table_t* table = get_current_fd_table();
+    if (!table) return -1;
+
+    if (oldfd < 0 || newfd < 0 || oldfd >= VFS_MAX_FDS || newfd >= VFS_MAX_FDS) {
+        return -1;
+    }
+
+    /* dup2(oldfd, oldfd) is a no-op that just returns oldfd. */
+    if (oldfd == newfd) {
+        return newfd;
+    }
+
+    vfs_node_t* node = fd_table_get(table, oldfd);
+    if (!node) return -1;
+
+    /* If newfd is already open, close it first (POSIX). */
+    if (table->fds[newfd]) {
+        fd_table_close(table, newfd);
+    }
+
+    table->fds[newfd] = node;
+    node->ref_count++;
+    table->count++;
+    return newfd;
+}
+
 int vfs_seek(int fd, int whence, int offset) {
     fd_table_t* table = get_current_fd_table();
     if (!table) return -1;

@@ -142,6 +142,64 @@ static void cmd_pipe(void) {
     terminal_writestring_nl("  Pipe closed");
 }
 
+static void cmd_dup(void) {
+    /* End-to-end dup2 demonstration: open a file, dup2 it onto a
+     * specific fd, read through the copy, close the original, and
+     * confirm the duplicated descriptor still works. */
+    const char* name = "dup_test.txt";
+    int fd = vfs_open(name, VFS_O_CREAT | VFS_O_RDWR);
+    if (fd < 0) {
+        terminal_writestring_nl("  Error: could not create dup_test.txt");
+        return;
+    }
+
+    const char* payload = "dup test payload";
+    int w = vfs_write(fd, payload, k_strlen(payload));
+    if (w < 0) {
+        terminal_writestring_nl("  Error: write failed");
+        vfs_close(fd);
+        return;
+    }
+    terminal_writestring("  Wrote ");
+    terminal_put_dec(w);
+    terminal_writestring_nl(" bytes");
+
+    /* Rewind, then duplicate onto fd 5 (a free slot). */
+    vfs_seek(fd, VFS_SEEK_SET, 0);
+    int dupfd = vfs_dup(fd);
+    if (dupfd < 0) {
+        terminal_writestring_nl("  Error: dup failed");
+        vfs_close(fd);
+        return;
+    }
+    terminal_writestring("  dup(");
+    terminal_put_dec(fd);
+    terminal_writestring(") = ");
+    terminal_put_dec(dupfd);
+    terminal_writestring_nl("");
+
+    /* Read through the duplicate — it shares the offset with the original. */
+    char buf[64];
+    int n = vfs_read(dupfd, buf, sizeof(buf) - 1);
+    buf[n] = 0;
+    terminal_writestring("  Read via dup fd ");
+    terminal_put_dec(dupfd);
+    terminal_writestring(": \"");
+    terminal_writestring(buf);
+    terminal_writestring_nl("\"");
+
+    /* Close the original; the duplicate must survive. */
+    vfs_close(fd);
+    int n2 = vfs_read(dupfd, buf, sizeof(buf) - 1);
+    terminal_writestring("  After closing original, dup fd read returns ");
+    terminal_put_dec(n2);
+    terminal_writestring_nl(" (0 = survived close)");
+
+    vfs_close(dupfd);
+    vfs_unlink(name);
+    terminal_writestring_nl("  Dup test complete");
+}
+
 static void cmd_ps(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  PID  Name        Active    Window");
@@ -1143,6 +1201,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "pipe")) {
         cmd_pipe();
+    }
+    else if (cmd_equals(cmd, "dup")) {
+        cmd_dup();
     }
     else if (cmd_equals(cmd, "clear")) {
         cmd_clear();

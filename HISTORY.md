@@ -946,3 +946,46 @@ The CI pipeline's biggest verification gap: the full host test suite (124 tests)
 ### Results
 - CI now gates on: kernel build (gcc, 0 warnings), full 124-test host suite, GRUB-ISO boot reaching the shell.
 - Boot test went from informational-only to a hard gate on `Starting Shell`.
+
+---
+
+## 2026-08-21 — VFS dup/dup2: File Descriptor Duplication
+
+### Context
+With the fd table real (previous sessions) and pipes in place, the classic Unix fd primitive `dup`/`dup2` was missing entirely — no `SYS_DUP`, no `vfs_dup`, nothing. These are the primitives shell redirection (`cmd > file 2>&1`) builds on.
+
+### Changes Made
+
+#### `src/fs/vfs.c` + `include/vfs.h`
+- `vfs_dup(fd)` — duplicates a descriptor into the lowest free slot. The copy shares the same `vfs_node_t` (and therefore the same file offset) with the original, exactly like POSIX.
+- `vfs_dup2(oldfd, newfd)` — places the copy at exactly `newfd`, closing whatever descriptor is already there first (POSIX semantics). `dup2(fd, fd)` is a no-op returning `fd`. Bounds-checks both fds.
+- Both operate through the current fd table (per-process or kernel-context fallback), so they work for user processes and kernel context alike.
+- Correct-by-construction semantics: because the fd table is ref-count based and the file offset lives on the node, dup sharing a node gives shared-offset semantics for free, and closing the original doesn't invalidate the copy (refcount keeps the node alive).
+
+#### `include/syscall.h` + `src/kernel/sys.c`
+- `SYS_DUP` (16) → `sys_dup(fd)` → `vfs_dup`; `SYS_DUP2` (17) → `sys_dup2(oldfd, newfd)` → `vfs_dup2`. Both added to the `syscall_handler` dispatch table.
+
+#### `src/ui/shell.c`
+- New `dup` command — end-to-end demonstration: creates `dup_test.txt`, writes a payload, rewinds, `dup`s onto a fresh fd, reads through the duplicate (shares offset), closes the original, and confirms the duplicate still reads — then unlinks the file.
+
+#### Tests (`tests/unit/test_vfile.c`)
+4 new host tests: `vfs_dup_shared_offset` (dup reads payload, original offset advances in step, dup survives original close), `vfs_dup2_replaces_target` (dup2 replaces an open target fd), `vfs_dup2_same_fd_noop` (no-op, single close frees it), `vfs_dup_invalid_fd` (unopened/negative/out-of-range all fail).
+
+#### Tool
+- `tools/drive_dup.py` — QEMU TCP-monitor driver for end-to-end verification.
+
+### Verified under QEMU (`-accel whpx`)
+```
+> dup
+  Wrote 16 bytes
+  dup(0) = 1
+  Read via dup fd 1: "dup test payload"
+  After closing original, dup fd read returns 0 (0 = survived close)
+  Dup test complete
+```
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **128/128 pass** (124 previous + 4 dup/dup2 tests)
+- dup verified end-to-end under QEMU/WHPX (5/5 checks pass)
+- `SYS_DUP`/`SYS_DUP2` available to user programs; shell redirection is now buildable on top
