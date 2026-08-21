@@ -803,3 +803,37 @@ vfile         /dev     virtual
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: **111/111 pass** (108 previous + 3 VFS mount-table tests)
 - VFS layer activated at boot; `/proc/mounts` and `mount` now reflect real kernel state (6/6 QEMU checks pass)
+
+---
+
+## 2026-08-21 — File Descriptors: Syscalls Route Through the VFS fd Table
+
+### Context
+The mission priority list calls out file descriptors. The VFS fd-table machinery (`vfs_open`/`vfs_read`/`vfs_close`, per-process `fd_table_t`) existed but was dead for user programs: `sys_open` returned a raw ramfs fd, `sys_read` called `ramfs_read` directly, and `sys_close` looked in `proc->fd_table` — which nothing ever populated. The syscall layer and VFS layer disagreed on what an fd is.
+
+### Changes Made
+
+#### `src/fs/vfs.c`
+- Added a shared **kernel-context fd table** (`kernel_fd_table`) used when `process_current()` returns NULL (kernel context, host tests). `get_current_fd_table()` now returns the per-process table when one exists, else the kernel table.
+- `vfs_open()` uses the kernel table for the no-process case (previously it created an orphaned table that was leaked and unusable) and still creates/attaches a per-process table on a process's first open.
+- `vfs_init()` zeroes the kernel table.
+
+#### `src/kernel/sys.c`
+- `sys_open` → `vfs_open(name, VFS_O_RDONLY)` — allocates a real fd-table entry.
+- `sys_read` → `vfs_read(fd, buf, count)` — offset-tracking reads through the fd table.
+- `sys_write` — fds 1/2 still go to the terminal; any other fd routes through `vfs_write`.
+- `sys_close` was already fd-table-based and now works because opens actually populate the table.
+
+#### Tests
+- 3 new host tests in `test_vfile.c` (vfs.c + ramfs.c are compiled into the host suite, mock `process_current()` returns NULL so they exercise the kernel-fd-table path):
+  - `vfs_fd_open_read_close` — open, read payload, sequential read hits EOF, close, read-after-close fails.
+  - `vfs_fd_write_roundtrip` — create+write through an fd, close, reopen read-only, verify data persisted.
+  - `vfs_fd_unlink` — create, close, unlink, reopen fails.
+
+### Verified under QEMU (`-accel whpx`)
+- Clean boot to interactive shell; `mount` and `/proc/mounts` still correct; all file operations unaffected (shell uses fs.c directly, untouched).
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **114/114 pass** (111 previous + 3 fd round-trip tests)
+- User-mode syscalls now allocate real VFS file descriptors; the fd table is no longer dead code

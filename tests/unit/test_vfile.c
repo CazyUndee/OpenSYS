@@ -11,6 +11,7 @@
 #include "../test_framework.h"
 #include "../../include/vfile.h"
 #include "../../include/vfs.h"
+#include "../../include/ramfs.h"
 #include <string.h>
 
 /* ---- Test: vfile_init registers entries ---- */
@@ -596,6 +597,77 @@ static void test_vfile_hostname_strips_newline(void) {
     TEST_PASS();
 }
 
+/* ---- Test: VFS fd-table round trip (kernel context) ---- */
+
+static void test_vfs_fd_open_read_close(void) {
+    vfs_init();
+    ramfs_init();
+
+    /* Seed a file directly in ramfs (flat namespace, no leading slash) */
+    int rfd = ramfs_create("data.txt");
+    ASSERT(rfd >= 0, "ramfs create should succeed");
+    const char* payload = "fd-payload";
+    ramfs_write(rfd, payload, (uint32_t)strlen(payload));
+
+    /* Open through VFS — gets a real fd-table entry */
+    int fd = vfs_open("data.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should return an fd");
+
+    /* Read through the fd */
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(fd, buf, sizeof(buf));
+    ASSERT(n == (int)strlen(payload), "vfs_read should return payload length");
+    ASSERT(strcmp(buf, payload) == 0, "vfs_read data should match payload");
+
+    /* Sequential read should now return 0 (offset advanced past EOF) */
+    int n2 = vfs_read(fd, buf, sizeof(buf));
+    ASSERT(n2 == 0, "second read at EOF should return 0");
+
+    /* Close and verify the fd is released */
+    ASSERT(vfs_close(fd) == 0, "vfs_close should succeed");
+    ASSERT(vfs_read(fd, buf, sizeof(buf)) == -1, "read after close should fail");
+    TEST_PASS();
+}
+
+static void test_vfs_fd_write_roundtrip(void) {
+    vfs_init();
+    ramfs_init();
+
+    /* Create a file via VFS with WRONLY, write, close */
+    int fd = vfs_open("out.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "vfs_open with O_CREAT should succeed");
+
+    const char* msg = "written via fd";
+    int w = vfs_write(fd, msg, (int)strlen(msg));
+    ASSERT(w == (int)strlen(msg), "vfs_write should return byte count");
+    ASSERT(vfs_close(fd) == 0, "vfs_close should succeed");
+
+    /* Re-open read-only and verify the data persisted */
+    int rfd = vfs_open("out.txt", VFS_O_RDONLY);
+    ASSERT(rfd >= 0, "reopen should succeed");
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(rfd, buf, sizeof(buf));
+    ASSERT(n == (int)strlen(msg), "read should return written bytes");
+    ASSERT(strcmp(buf, msg) == 0, "data should round-trip through the fd");
+    vfs_close(rfd);
+    TEST_PASS();
+}
+
+static void test_vfs_fd_unlink(void) {
+    vfs_init();
+    ramfs_init();
+    int fd = vfs_open("gone.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create should succeed");
+    vfs_close(fd);
+
+    ASSERT(vfs_unlink("gone.txt") == 0, "vfs_unlink should succeed");
+    int rfd = vfs_open("gone.txt", VFS_O_RDONLY);
+    ASSERT(rfd < 0, "open after unlink should fail");
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -635,6 +707,11 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_mount_table", test_vfs_mount_table);
     test_suite_add_test(&suite, "vfs_mount_idempotent", test_vfs_mount_idempotent);
     test_suite_add_test(&suite, "vfs_mount_vfile_namespaces", test_vfs_mount_vfile_namespaces);
+
+    /* VFS fd-table round-trip tests */
+    test_suite_add_test(&suite, "vfs_fd_open_read_close", test_vfs_fd_open_read_close);
+    test_suite_add_test(&suite, "vfs_fd_write_roundtrip", test_vfs_fd_write_roundtrip);
+    test_suite_add_test(&suite, "vfs_fd_unlink", test_vfs_fd_unlink);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

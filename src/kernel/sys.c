@@ -29,8 +29,9 @@ static int sys_exit(int code) {
 
 static int sys_read(int fd, void* buf, uint32_t count) {
     if (fd < 0) return -1;
-    int bytes = ramfs_read(fd, buf, count, 0);
-    return bytes;
+    /* Route through the VFS fd table so user programs get real,
+     * offset-tracking file descriptors. */
+    return vfs_read(fd, buf, count);
 }
 
 static int sys_write(int fd, const void* buf, uint32_t count) {
@@ -41,7 +42,8 @@ static int sys_write(int fd, const void* buf, uint32_t count) {
 		}
 		return count;
 	}
-	return -1;
+	/* Regular file descriptor — route through the VFS fd table */
+	return vfs_write(fd, buf, count);
 }
 
 static int sys_yield(void) {
@@ -60,8 +62,9 @@ static int sys_getpid(void) {
 }
 
 static int sys_open(const char* name) {
-    int fd = ramfs_find(name);
-    return fd;
+    if (!name) return -1;
+    /* Allocate a real VFS fd-table entry (ramfs backend at /). */
+    return vfs_open(name, VFS_O_RDONLY);
 }
 
 static int sys_close(int fd) {

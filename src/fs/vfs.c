@@ -17,10 +17,14 @@ static int mount_count = 0;
 
 static vfs_node_t node_pool[MAX_VFS_NODES];
 
+/* Fallback fd table used when no process context exists (kernel context,
+ * host tests). User processes get their own per-process table instead. */
+static fd_table_t kernel_fd_table;
+
 static fd_table_t* get_current_fd_table(void) {
     process_t* proc = process_current();
-    if (proc) return proc->fd_table;
-    return 0;
+    if (proc && proc->fd_table) return proc->fd_table;
+    return &kernel_fd_table;
 }
 
 static vfs_ops_t* find_ops(const char* path) {
@@ -108,6 +112,10 @@ void vfs_init(void) {
         node_pool[i].ops = 0;
         node_pool[i].internal_fd = -1;
     }
+    for (int i = 0; i < VFS_MAX_FDS; i++) {
+        kernel_fd_table.fds[i] = 0;
+    }
+    kernel_fd_table.count = 0;
     mount_count = 0;
     vfs_mount("/", &ramfs_vfs_ops);
 }
@@ -157,14 +165,20 @@ int vfs_open(const char* path, int flags) {
     node->flags = flags & 3;
 
     process_t* proc = process_current();
-    fd_table_t* table = proc ? proc->fd_table : 0;
-    if (!table) {
+    fd_table_t* table = 0;
+    if (proc && proc->fd_table) {
+        table = proc->fd_table;
+    } else if (proc) {
+        /* First open from this process — create its fd table */
         table = fd_table_create();
         if (!table) {
             free_node(node);
             return -1;
         }
-        if (proc) proc->fd_table = table;
+        proc->fd_table = table;
+    } else {
+        /* Kernel context — use the shared kernel fd table */
+        table = &kernel_fd_table;
     }
 
     int fd = fd_table_alloc(table, node);
