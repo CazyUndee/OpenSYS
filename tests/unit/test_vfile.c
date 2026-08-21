@@ -10,6 +10,7 @@
 
 #include "../test_framework.h"
 #include "../../include/vfile.h"
+#include "../../include/vfs.h"
 #include <string.h>
 
 /* ---- Test: vfile_init registers entries ---- */
@@ -330,6 +331,8 @@ static void test_vfile_interrupts_content(void) {
 /* ---- Test: /proc/mounts content ---- */
 
 static void test_vfile_mounts_content(void) {
+    /* Mirror kernel boot order: VFS first (mounts ramfs at /), then vfile */
+    vfs_init();
     vfile_init();
     char buf[512];
     int len = vfile_read("/proc/mounts", buf, sizeof(buf));
@@ -337,6 +340,50 @@ static void test_vfile_mounts_content(void) {
     buf[len] = 0;
     ASSERT(strstr(buf, "ramfs") != NULL, "mounts should list ramfs");
     ASSERT(strstr(buf, "vfile") != NULL, "mounts should list vfile");
+    ASSERT(strstr(buf, "/proc") != NULL, "mounts should list /proc");
+    ASSERT(strstr(buf, "/sys") != NULL, "mounts should list /sys");
+    ASSERT(strstr(buf, "/dev") != NULL, "mounts should list /dev");
+    TEST_PASS();
+}
+
+/* ---- Test: VFS mount table accessors ---- */
+
+static void test_vfs_mount_table(void) {
+    vfs_init();
+    /* vfs_init mounts ramfs at / */
+    ASSERT(vfs_mount_count() == 1, "vfs_init should register exactly one mount");
+
+    char path[VFS_MAX_PATH];
+    ASSERT(vfs_get_mount(0, path) == 0, "mount 0 should be readable");
+    ASSERT(strcmp(path, "/") == 0, "mount 0 should be at /");
+    ASSERT(vfs_get_mount(1, path) == -1, "mount 1 should be out of range");
+    TEST_PASS();
+}
+
+static void test_vfs_mount_idempotent(void) {
+    vfs_init();
+    ASSERT(vfs_mount_count() == 1, "vfs_init should register one mount");
+
+    /* Re-mounting the same path should not create a duplicate */
+    vfs_mount("/", 0);
+    vfs_mount("/", 0);
+    ASSERT(vfs_mount_count() == 1, "mount count should stay 1 after re-mounting /");
+    TEST_PASS();
+}
+
+static void test_vfs_mount_vfile_namespaces(void) {
+    vfs_init();
+    vfile_init();
+    /* vfs_init (/) + vfile_init (/proc, /sys, /dev) */
+    ASSERT(vfs_mount_count() == 4, "vfs+vfile should register 4 mounts");
+
+    char path[VFS_MAX_PATH];
+    ASSERT(vfs_get_mount(1, path) == 0 && strcmp(path, "/proc") == 0,
+           "mount 1 should be /proc");
+    ASSERT(vfs_get_mount(2, path) == 0 && strcmp(path, "/sys") == 0,
+           "mount 2 should be /sys");
+    ASSERT(vfs_get_mount(3, path) == 0 && strcmp(path, "/dev") == 0,
+           "mount 3 should be /dev");
     TEST_PASS();
 }
 
@@ -583,6 +630,11 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfile_mounts_content", test_vfile_mounts_content);
     test_suite_add_test(&suite, "vfile_heap_content", test_vfile_heap_content);
     test_suite_add_test(&suite, "vfile_heap_integrity_ok", test_vfile_heap_integrity_ok);
+
+    /* VFS mount table tests */
+    test_suite_add_test(&suite, "vfs_mount_table", test_vfs_mount_table);
+    test_suite_add_test(&suite, "vfs_mount_idempotent", test_vfs_mount_idempotent);
+    test_suite_add_test(&suite, "vfs_mount_vfile_namespaces", test_vfs_mount_vfile_namespaces);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

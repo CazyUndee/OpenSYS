@@ -761,3 +761,45 @@ File/dir counts track create/mkdir/rm live. Used stays 0 KB because small files 
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: **108/108 pass** (93 previous + 14 ramfs + 1 fs_stats layout)
 - All df/accounting checks verified end-to-end under QEMU/WHPX (8/8 pass)
+
+---
+
+## 2026-08-21 — Wire VFS into Boot & Live Mount Table
+
+### Context
+The VFS layer (`vfs.c`) was dead code: `vfs_init()` and `ramfs_init()` were never called from the kernel, and `/proc/mounts` was hardcoded strings rather than the real kernel mount table.
+
+### Changes Made
+
+#### `src/kernel/kernel.c`
+- Boot now calls `ramfs_init()` + `vfs_init()` before `vfile_init()`, activating the VFS layer (mounts ramfs at `/`) and the fd-table machinery it provides.
+
+#### `src/fs/vfs.c` + `include/vfs.h`
+- `vfs_mount()` is now idempotent (no duplicate mountpoints; re-registering the same path updates ops instead).
+- New accessors: `vfs_mount_count()` and `vfs_get_mount(index, out_path)` — expose the live mount table.
+
+#### `src/fs/vfile.c`
+- `vfile_init()` now registers the virtual namespaces (`/proc`, `/sys`, `/dev`) as path-only entries in the VFS mount table.
+- `gen_mounts` (the `/proc/mounts` generator) now iterates the real VFS mount table instead of printing hardcoded rows.
+
+#### Tests
+- `tests/Makefile` — compiled the real `vfs.c` into the host suite (alongside ramfs/vfile/kstring/nl_parser).
+- `tests/unit/test_vfile.c` — 3 new tests: mount-table accessors (`vfs_init` registers `/`), idempotent re-mounting, and the 4-entry table after `vfs_init`+`vfile_init` (`/`, `/proc`, `/sys`, `/dev`). `test_vfile_mounts_content` now mirrors kernel boot order (`vfs_init` then `vfile_init`).
+
+### Verified under QEMU (`-accel whpx`)
+```
+> mount
+Filesystem    Mount    Type
+------------  -------  ----
+ramfs         /        ramfs
+vfile         /proc    virtual
+vfile         /sys     virtual
+vfile         /dev     virtual
+
+> read /proc/mounts   (identical, from the live table)
+```
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: **111/111 pass** (108 previous + 3 VFS mount-table tests)
+- VFS layer activated at boot; `/proc/mounts` and `mount` now reflect real kernel state (6/6 QEMU checks pass)

@@ -137,6 +137,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 - Add QEMU integration tests to CI pipeline
 - ~~Add kernel heap leak detection (magic number validation)~~ DONE — `kheap_validate()`/`kheap_dump()` implemented, `kheap_get_stats()` complete, exposed as `/proc/heap` (2026-08-21)
 - ~~Filesystem usage accounting / honest df~~ DONE — `fs_get_stats()` (cluster bitmap + MFT) and `ramfs_get_stats()` implemented; `df` reports real size/used/avail plus live file/dir counts; 14-test ramfs suite added (2026-08-21)
+- ~~Wire VFS into boot / live mount table~~ DONE — `ramfs_init()`+`vfs_init()` now called at boot (VFS was dead code); `vfs_mount` is idempotent; `vfs_mount_count()`/`vfs_get_mount()` accessors added; `/proc/mounts` and `mount` read the real VFS mount table (2026-08-21)
 
 ### Medium-term
 - Add AHCI/SATA driver for modern disk access

@@ -75,6 +75,10 @@ void vfs_list(void (*callback)(const char*, int, uint32_t));
 
 void vfs_mount(const char* path, vfs_ops_t* ops);
 
+/* Mount table accessors */
+int vfs_mount_count(void);
+int vfs_get_mount(int index, char* out_path);
+
 fd_table_t* fd_table_create(void);
 void fd_table_destroy(fd_table_t* table);
 int fd_table_alloc(fd_table_t* table, vfs_node_t* node);

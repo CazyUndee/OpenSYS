@@ -23,6 +23,7 @@
 #include "version.h"
 #include "pci.h"
 #include "kheap.h"
+#include "vfs.h"
 
 /* ---- Internal state ---- */
 
@@ -400,20 +401,34 @@ static int gen_interrupts(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/mounts — filesystem mount table */
+/* /proc/mounts — filesystem mount table (from the live VFS mount table) */
 static int gen_mounts(char* buf, size_t max) {
     int pos = 0;
 
     pos += append_str(buf + pos, max - (size_t)pos, "Filesystem    Mount    Type\n");
     pos += append_str(buf + pos, max - (size_t)pos, "------------  -------  ----\n");
 
-    /* ramfs at / */
-    pos += append_str(buf + pos, max - (size_t)pos, "ramfs         /        ramfs\n");
+    /* Real mounts registered in the VFS mount table */
+    int mcount = vfs_mount_count();
+    if (mcount <= 0) {
+        pos += append_str(buf + pos, max - (size_t)pos, "(none)\n");
+    }
+    for (int i = 0; i < mcount; i++) {
+        char mpath[VFS_MAX_PATH];
+        if (vfs_get_mount(i, mpath) < 0) continue;
 
-    /* virtual filesystems */
-    pos += append_str(buf + pos, max - (size_t)pos, "vfile         /proc    virtual\n");
-    pos += append_str(buf + pos, max - (size_t)pos, "vfile         /sys     virtual\n");
-    pos += append_str(buf + pos, max - (size_t)pos, "vfile         /dev     virtual\n");
+        if (k_strcmp(mpath, "/") == 0) {
+            pos += append_str(buf + pos, max - (size_t)pos, "ramfs         /        ramfs\n");
+        } else {
+            pos += append_str(buf + pos, max - (size_t)pos, "vfile         ");
+            int plen = k_strlen(mpath);
+            for (int j = 0; j < plen && (size_t)pos < max - 1; j++) {
+                buf[pos++] = mpath[j];
+            }
+            while (plen < 7) { buf[pos++] = ' '; plen++; }
+            pos += append_str(buf + pos, max - (size_t)pos, "  virtual\n");
+        }
+    }
 
     return pos;
 }
@@ -816,6 +831,14 @@ void vfile_init(void) {
     entry_count = 0;
 
     for (int i = 0; i < VFILE_NUM_IRQS; i++) irq_counts[i] = 0;
+
+    /* Register the virtual namespaces in the live VFS mount table so
+     * /proc/mounts reflects the real kernel state. The vfile layer has
+     * no backing ops of its own — entries are resolved by the vfile
+     * registry — so the mount ops pointer is NULL (path-only entry). */
+    vfs_mount("/proc", 0);
+    vfs_mount("/sys", 0);
+    vfs_mount("/dev", 0);
 
     /* Directories */
     reg_dir("/",             list_root);

@@ -8,6 +8,7 @@
 #include "kheap.h"
 #include "ramfs.h"
 #include "process.h"
+#include "kstring.h"
 
 #define MAX_VFS_NODES 128
 
@@ -112,6 +113,16 @@ void vfs_init(void) {
 }
 
 void vfs_mount(const char* path, vfs_ops_t* ops) {
+    if (!path) return;
+
+    /* Idempotent: no duplicate mountpoints */
+    for (int m = 0; m < mount_count; m++) {
+        if (mounts[m].active && k_strcmp(mounts[m].path, path) == 0) {
+            mounts[m].ops = ops;  /* allow re-registering ops */
+            return;
+        }
+    }
+
     if (mount_count >= VFS_MAX_MOUNTS) return;
     int i = 0;
     while (path[i] && i < VFS_MAX_PATH - 1) {
@@ -243,6 +254,37 @@ void vfs_list(void (*callback)(const char*, int, uint32_t)) {
     if (mount_count > 0 && mounts[0].active && mounts[0].ops->list) {
         mounts[0].ops->list(callback);
     }
+}
+
+/* ========== Mount table accessors ========== */
+
+int vfs_mount_count(void) {
+    int count = 0;
+    for (int i = 0; i < mount_count; i++) {
+        if (mounts[i].active) count++;
+    }
+    return count;
+}
+
+/* Copy the i-th active mount's mountpoint into out_path (VFS_MAX_PATH bytes).
+ * Returns 0 on success, -1 if i is out of range. */
+int vfs_get_mount(int index, char* out_path) {
+    if (!out_path) return -1;
+    int count = 0;
+    for (int i = 0; i < mount_count; i++) {
+        if (!mounts[i].active) continue;
+        if (count == index) {
+            int j = 0;
+            while (mounts[i].path[j] && j < VFS_MAX_PATH - 1) {
+                out_path[j] = mounts[i].path[j];
+                j++;
+            }
+            out_path[j] = 0;
+            return 0;
+        }
+        count++;
+    }
+    return -1;
 }
 
 /* ========== FD table ========== */

@@ -21,7 +21,7 @@ INTEGRATION_TEST_SRCS = $(INTEGRATIONDIR)/test_kernel_integration.c
 MOCK_SRCS = $(MOCKDIR)/mock_kernel.c $(MOCKDIR)/mock_hardware.c
 
 # Real implementations compiled into the host tests (no kernel dependencies)
-REAL_SRCS = ../src/ui/nl_parser.c ../src/kernel/kstring.c ../src/fs/vfile.c ../src/fs/ramfs.c
+REAL_SRCS = ../src/ui/nl_parser.c ../src/kernel/kstring.c ../src/fs/vfile.c ../src/fs/ramfs.c ../src/fs/vfs.c
 
 ALL_SRCS = $(TEST_FRAMEWORK_SRCS) $(UNIT_TEST_SRCS) $(INTEGRATION_TEST_SRCS) $(MOCK_SRCS) $(REAL_SRCS)
 

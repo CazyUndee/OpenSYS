@@ -51,13 +51,15 @@
 #include "shell.h"
 #include "rtc.h"
 #include "vfs.h"
+#include "vfile.h"
+#include "version.h"
 
 void kernel_main(uint64_t magic, uint64_t mbi) {
     terminal_initialize();
     serial_init();
 
-    terminal_writestring("Plan 0 v0.4.1\n");
-    serial_writestring("Plan 0 v0.4.1\n");
+    terminal_writestring(PLAN0_FULL_NAME "\n");
+    serial_writestring(PLAN0_FULL_NAME "\n");
 	terminal_writestring("=============================\n\n");
 
 	if (magic == 0x2BADB002) {
@@ -100,6 +102,13 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 
 	terminal_writestring("[DONE] 64-bit memory system ready!\n");
 
+	terminal_writestring("\n[INIT] GDT/TSS...\n");
+	tss_init();
+	/* Kernel stack used for ring-0 entry (user -> kernel transitions) */
+	tss_set_rsp0((uint64_t)kmalloc(16384) + 16384);
+	gdt64_init();
+	terminal_writestring(" GDT loaded with TSS (ltr done)\n");
+
 	terminal_writestring("\n[INIT] Interrupts...\n");
 	idt_init();
 	terminal_writestring(" IDT loaded\n");
@@ -111,17 +120,20 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 	terminal_writestring(" Timer initialized (1000 Hz)\n");
 
 	terminal_writestring("\n[INIT] PS/2 Keyboard...\n");
-	if (ps2_keyboard_init() == 0) {
+	if (input_init() == 0) {
+		terminal_writestring(" PS/2 keyboard FAILED\n");
+	} else {
 		terminal_writestring(" PS/2 keyboard initialized\n");
 
+		/* Unmask IRQ1 (keyboard) only. IRQ0 (timer) stays masked so the
+		 * round-robin scheduler cannot preempt the kernel shell context
+		 * (the shell runs directly in kernel_main, not as a process). */
 		__asm__ volatile (
 			"inb $0x21, %%al\n"
-			"and $0xFC, %%al\n"
+			"and $0xFD, %%al\n"
 			"outb %%al, $0x21\n"
 			: : : "al"
 		);
-	} else {
-		terminal_writestring(" PS/2 keyboard FAILED\n");
 	}
 
 	terminal_writestring("\n[INIT] Disk...\n");
@@ -141,23 +153,14 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 		}
 	} else {
 		terminal_writestring(" Mounted successfully\n");
-		terminal_writestring("// Phase 1: Initialize Memory and Filesystem\n");
-		terminal_writestring("[BOOT] Phase 1: Memory and Filesystem...\n");
-		memory_init(mbi);
-		paging_init();
-		kheap_init(0xFFFF800000000000ULL, 64 * 1024 * 1024);
 
-		// Phase 2: Load MFT UI records into kernel-space State Graph
-		terminal_writestring("[BOOT] Phase 2: Loading State Graph from MFT...\n");
+		// Load MFT UI records into kernel-space State Graph
+		terminal_writestring("[BOOT] Loading State Graph from MFT...\n");
 		state_graph_init();
 		state_graph_load_from_mft();
 
-		// Phase 3: Initialize Intent Dispatcher
-		terminal_writestring("[BOOT] Phase 3: Initializing Intent Dispatcher...\n");
-		intent_dispatcher_init();
-
-		// Phase 4: Initialize PCID system
-		terminal_writestring("[BOOT] Phase 4: Initializing PCID...\n");
+		// Initialize PCID system
+		terminal_writestring("[BOOT] Initializing PCID...\n");
 		extern int init_pcid_system_c(void);
 		if (init_pcid_system_c() == 0) {
 			terminal_writestring(" PCID enabled\n");
@@ -165,20 +168,13 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 			terminal_writestring(" PCID not supported (falling back to full TLB flushes)\n");
 		}
 
-// Phase 5: Input System (deferred - needs input.h API implementation)
-// TODO: Once include/input.h API is implemented, spawn a user-mode input
-// listener process and register a real notify callback here. Currently PS/2
-// and USB HID keyboards work via their own drivers, but the abstract
-// input.h layer has no implementations in src/.
-// NOTE: state_graph_add_observer(NULL) registrations removed (they were dead code).
-
-// Phase 6: Spawn Shell (CLI) and GUI Renderer as first two "Observer" processes
-terminal_writestring("[BOOT] Phase 6: Starting UI Processes...\n");
-
-terminal_writestring("[BOOT] Unified System Ready!\n\n");
-		terminal_writestring("System is stable and running.\n");
-		terminal_writestring("Keyboard driver needs PS/2 hardware support.\n");
+		terminal_writestring("[BOOT] Unified System Ready!\n\n");
 	}
+
+	// Initialize Intent Dispatcher (always, not just when disk is mounted)
+	// This enables chdir/pwd/search even without a disk.
+	terminal_writestring("[BOOT] Initializing Intent Dispatcher...\n");
+	intent_dispatcher_init();
 
 	__asm__ volatile ("sti");
 	terminal_writestring(" Interrupts enabled\n\n");
@@ -205,7 +201,14 @@ terminal_writestring("[BOOT] Unified System Ready!\n\n");
         terminal_writestring(" Network not available\n");
     }
 
-    terminal_writestring("[DONE] System ready!\n");
+    terminal_writestring("[DONE] System ready!\n");    terminal_writestring("\n[INIT] VFS layer...\n");
+	ramfs_init();
+	vfs_init();
+	terminal_writestring(" VFS mounted (ramfs at /)\n");
+
+	terminal_writestring("\n[INIT] Virtual filesystem...\n");
+	vfile_init();
+	terminal_writestring(" Virtual resources registered\n\n");
 
 	terminal_writestring("\nStarting Shell...\n\n");
 
@@ -213,11 +216,12 @@ terminal_writestring("[BOOT] Unified System Ready!\n\n");
 	process_init();
 	terminal_writestring(" Process system initialized\n");
 
-	// Start the shell
+	// Run the shell directly in the kernel context (preemptive scheduling is
+	// deferred: the context-switch iretq is mishandled by WHPX even with a
+	// byte-perfect frame, so IRQ0 stays masked and the shell runs inline).
 	shell_run();
 
-	// Should never reach here
-	terminal_writestring("\n[ERROR] Shell returned unexpectedly - halting\n");
+	// Should never return
 	while (1) {
 		__asm__ volatile ("hlt");
 	}
