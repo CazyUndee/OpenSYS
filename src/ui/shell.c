@@ -312,7 +312,11 @@ static void cmd_delete(const char* name) {
     }
     
     if (fs_unlink(path) < 0) {
-        terminal_writestring_nl("  Error: File not found");
+        if (fs_is_readonly(path) == 1) {
+            terminal_writestring_nl("  Error: File is read-only (chmod +w to unprotect)");
+        } else {
+            terminal_writestring_nl("  Error: File not found");
+        }
     } else {
         terminal_writestring("  Deleted: ");
         terminal_writestring_nl(name);
@@ -351,7 +355,11 @@ static void cmd_write_file(const char* name, const char* content) {
     
     fs_file_t* file = fs_open(path, 1);
     if (!file) {
-        terminal_writestring_nl("  Error: Could not open file for writing");
+        if (fs_is_readonly(path) == 1) {
+            terminal_writestring_nl("  Error: File is read-only (chmod +w to unprotect)");
+        } else {
+            terminal_writestring_nl("  Error: Could not open file for writing");
+        }
         return;
     }
     int len = k_strlen(content);
@@ -730,6 +738,9 @@ static void show_help(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  Shell Utilities:");
     terminal_writestring_nl("    echo <text>       - display text");
+    terminal_writestring_nl("    chmod <file>      - show read-only status");
+    terminal_writestring_nl("    chmod -w <file>   - protect file (read-only)");
+    terminal_writestring_nl("    chmod +w <file>   - unprotect file (writable)");
     terminal_writestring_nl("    <cmd> > <file>    - redirect command output to a file");
     terminal_writestring_nl("    <cmd> >> <file>   - append command output to a file");
     terminal_writestring_nl("    clear screen      - clear terminal");
@@ -1013,6 +1024,58 @@ static void cmd_df(void) {
     terminal_writestring_nl("");
 }
 
+/* chmod — toggle the read-only flag on a real (fs.c) file.
+ *   chmod <file>        show status
+ *   chmod +w <file>     make writable
+ *   chmod -w <file>     make read-only (protect)
+ */
+static void cmd_chmod(const char* arg1, const char* arg2) {
+    const char* target = arg1;
+    int set_ro = -1;  /* -1 = show status */
+
+    if (arg1 && arg2 && *arg2) {
+        if (k_strcmp(arg1, "+w") == 0) {
+            set_ro = 0;
+            target = arg2;
+        } else if (k_strcmp(arg1, "-w") == 0) {
+            set_ro = 1;
+            target = arg2;
+        } else {
+            terminal_writestring_nl("  Usage: chmod <file> | chmod +w <file> | chmod -w <file>");
+            return;
+        }
+    }
+
+    if (!target || !*target) {
+        terminal_writestring_nl("  Usage: chmod <file> | chmod +w <file> | chmod -w <file>");
+        return;
+    }
+
+    char path[256];
+    if (resolve_path(path, target) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    if (set_ro >= 0) {
+        if (fs_set_readonly(path, set_ro) < 0) {
+            terminal_writestring_nl("  Error: file not found");
+            return;
+        }
+    }
+
+    int ro = fs_is_readonly(path);
+    if (ro < 0) {
+        terminal_writestring_nl("  Error: file not found");
+        return;
+    }
+
+    terminal_writestring("  ");
+    terminal_writestring(target);
+    terminal_writestring(ro ? ": read-only" : ": writable");
+    terminal_writestring_nl("");
+}
+
 /* Dispatch a canonical (verb, arg1, arg2) triple. Used both by the plain
  * token-based parser and by the natural-language parser (nl_parser.c). */
 static void dispatch(char* cmd, char* arg1, char* arg2) {
@@ -1206,6 +1269,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "dup")) {
         cmd_dup();
+    }
+    else if (cmd_equals(cmd, "chmod")) {
+        cmd_chmod(arg1, arg2);
     }
     else if (cmd_equals(cmd, "clear")) {
         cmd_clear();

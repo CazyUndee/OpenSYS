@@ -53,6 +53,7 @@
 /* MFT entry flags */
 #define MFT_FLAG_IN_USE     0x0001
 #define MFT_FLAG_DIRECTORY  0x0002
+#define MFT_FLAG_READONLY   0x0004
 
 /* Boot sector */
 typedef struct {
@@ -202,6 +203,11 @@ int fs_rmdir(const char* path);
 int fs_unlink(const char* path);
 int fs_rename(const char* old_path, const char* new_path);
 int fs_stat(const char* path, attr_filename_t* info);
+
+/* Permissions: mark a file read-only (1) or writable (0). Writes,
+ * appends, truncates, and unlinks are denied while read-only. */
+int fs_set_readonly(const char* path, int ro);
+int fs_is_readonly(const char* path);
 
 /* Utility */
 uint64_t fs_get_free_space(void);

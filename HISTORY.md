@@ -1008,3 +1008,21 @@ With the fd table real (previous sessions) and pipes in place, the classic Unix 
 - Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
 - Host tests: 128/128 pass (no new host tests; redirection verified in QEMU)
 - Redirection verified end-to-end under QEMU/WHPX (9/9 checks pass)
+
+## File permissions: read-only protection (`chmod`)
+
+- Added `MFT_FLAG_READONLY` (0x0004) to the MFT entry flags in fs.c —
+  the flag is persisted with the entry, so it survives remounts.
+- Added `fs_set_readonly(path, ro)` / `fs_is_readonly(path)`.
+- Enforcement in the filesystem layer: `fs_open` denies write/append/truncate
+  on a read-only file (returns NULL); `fs_unlink` denies deletion.
+- New shell command `chmod <file>` (status), `chmod -w <file>` (protect),
+  `chmod +w <file>` (unprotect). Write and delete failures on protected
+  files now say "File is read-only (chmod +w to unprotect)".
+- Verified end-to-end under QEMU/WHPX (8/8 checks): protect → write denied,
+  read still works, rm denied → unprotect → write/rm work again.
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: 129/129 pass (128 previous + readonly_flag_semantics)
+- chmod verified end-to-end under QEMU/WHPX (8/8 checks pass)

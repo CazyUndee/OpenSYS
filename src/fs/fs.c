@@ -479,6 +479,15 @@ fs_file_t* fs_open(const char* path, int mode) {
     } else if (mft_num == (uint64_t)-1) {
         return 0;
     }
+
+    /* Permission check: an existing read-only file cannot be opened for
+     * writing, appending, or truncation (mode 1 = write, mode 2 = append). */
+    if (mode != 0) {
+        mft_header_t* existing = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+        if (existing->flags & MFT_FLAG_READONLY) {
+            return 0;
+        }
+    }
     
     fs_file_t* file = (fs_file_t*)kmalloc(sizeof(fs_file_t));
     if (!file) return 0;
@@ -970,6 +979,9 @@ int fs_unlink(const char* path) {
     if (mft_num == (uint64_t)-1) return -1;
     
     mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+
+    /* Read-only files cannot be deleted. */
+    if (entry->flags & MFT_FLAG_READONLY) return -1;
     
     /* Free data clusters if non-resident */
     attr_header_t* data_attr = find_attr(entry, ATTR_DATA);
@@ -996,6 +1008,34 @@ int fs_unlink(const char* path) {
     entry->used_size = 0;
     
     return write_mft_entry(mft_num, entry) < 0 ? -1 : 0;
+}
+
+/* Permissions: mark a file read-only (ro=1) or writable (ro=0). The
+ * flag lives in the MFT entry flags, so it survives remounts. */
+int fs_set_readonly(const char* path, int ro) {
+    if (!path || !path[0]) return -1;
+
+    uint64_t mft_num = find_file(path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    if (ro) {
+        entry->flags |= MFT_FLAG_READONLY;
+    } else {
+        entry->flags &= (uint16_t)~MFT_FLAG_READONLY;
+    }
+
+    return write_mft_entry(mft_num, entry) < 0 ? -1 : 0;
+}
+
+int fs_is_readonly(const char* path) {
+    if (!path || !path[0]) return -1;
+
+    uint64_t mft_num = find_file(path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    return (entry->flags & MFT_FLAG_READONLY) ? 1 : 0;
 }
 
 /* List directory contents using index */
