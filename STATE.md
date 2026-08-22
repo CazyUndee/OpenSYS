@@ -143,6 +143,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 - ~~VFS pipes (IPC)~~ DONE — `vfs_pipe()` with a shared ring buffer + `SYS_PIPE` syscall + shell `pipe` command; fixed `alloc_node` same-slot bug and `vfs_open` node leak; 5 pipe tests (2026-08-21)
 - ~~/proc/self/fd introspection~~ DONE — `/proc/self/fd` directory + `/proc/self/fdinfo` file + `/proc/self/fd/<N>` dynamic read-through-descriptor; `vfs_fd_count()`/`vfs_fd_info()` accessors; 5 tests (2026-08-21)
 - ~~fd duplication~~ DONE — `vfs_dup`/`vfs_dup2` (shared-node POSIX semantics, dup2 replaces target, same-fd no-op) + `SYS_DUP`/`SYS_DUP2` syscalls + shell `dup` command; 4 tests; enables shell redirection (2026-08-21)
+- ~~Shell redirection~~ DONE — `cmd > file` truncate / `cmd >> file` append via `terminal_capture_begin/end()`; captured output written through the normal file path (virtual or real); fixed the `>>` split bug that leaked a `>` into the command; verified end-to-end under QEMU/WHPX 9/9 (2026-08-21)
 - ~~QEMU integration tests in CI~~ DONE — `host-tests` job runs the full 128-test suite and gates `verify`; boot test is a hard gate booting the GRUB ISO (`-cdrom bin/os.iso`) and requiring `Starting Shell`; also fixed the unindented lines that broke the workflow YAML and the stale `tools/qemu_boot_test.sh` toolchain path (2026-08-21)
 
 ### Medium-term

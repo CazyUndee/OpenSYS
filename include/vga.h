@@ -83,4 +83,10 @@ void terminal_writestring_nl(const char* data);
 void terminal_put_hex(uint64_t n);
 void terminal_put_dec(uint64_t n);
 
+/* Output capture for shell redirection. While capture is active, all
+ * terminal output goes into the buffer (screen and serial stay silent).
+ * terminal_capture_end() returns the number of bytes captured. */
+void terminal_capture_begin(char* buf, size_t size);
+size_t terminal_capture_end(void);
+
 #endif // VGA_H

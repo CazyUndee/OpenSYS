@@ -989,3 +989,22 @@ With the fd table real (previous sessions) and pipes in place, the classic Unix 
 - Host tests: **128/128 pass** (124 previous + 4 dup/dup2 tests)
 - dup verified end-to-end under QEMU/WHPX (5/5 checks pass)
 - `SYS_DUP`/`SYS_DUP2` available to user programs; shell redirection is now buildable on top
+
+## Shell redirection (`cmd > file` / `cmd >> file`)
+
+- Added `terminal_capture_begin/end()` in vga.c — terminal output can be
+  captured into a buffer (screen + serial silent) instead of displayed.
+- `process_command` in shell.c now recognizes a standalone `>` token:
+  the command runs with output captured, then the captured text is written
+  to the target via the normal file path (`vfile_write` for virtual files,
+  `fs_open`/`fs_write` for real files). `>>` appends, `>` truncates.
+- Fixed `>>` split bug: the command part was terminated after the second
+  `>`, leaving the first `>` in the command and causing a spurious
+  "Error: redirection needs a target file" inside the captured output.
+- `echo hello world > out.txt` / `ls > listing.txt` / append / `/dev/null`
+  verified end-to-end under QEMU/WHPX (9/9 checks pass).
+
+### Results
+- Kernel build: 0 compiler warnings (2 pre-existing informational linker notes)
+- Host tests: 128/128 pass (no new host tests; redirection verified in QEMU)
+- Redirection verified end-to-end under QEMU/WHPX (9/9 checks pass)

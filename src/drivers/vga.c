@@ -77,7 +77,38 @@ static void terminal_scroll(void) {
     }
 }
 
+/* Redirect terminal output into a buffer (used by shell redirection:
+ * `cmd > file` runs the command with output captured instead of shown).
+ * While active, all vga output funnels into the buffer; the screen and
+ * serial are silent. Returns the number of bytes captured on end. */
+static char* capture_buf = 0;
+static size_t capture_size = 0;
+static size_t capture_len = 0;
+
+void terminal_capture_begin(char* buf, size_t size) {
+    capture_buf = buf;
+    capture_size = size;
+    capture_len = 0;
+    if (buf && size) buf[0] = 0;
+}
+
+size_t terminal_capture_end(void) {
+    size_t n = capture_len;
+    capture_buf = 0;
+    capture_size = 0;
+    capture_len = 0;
+    return n;
+}
+
 void vga_putchar(char c) {
+    if (capture_buf) {
+        if (capture_len < capture_size - 1) {
+            capture_buf[capture_len++] = c;
+            capture_buf[capture_len] = 0;
+        }
+        return;
+    }
+
     serial_putchar(c);
 
     if (c == '\n') {

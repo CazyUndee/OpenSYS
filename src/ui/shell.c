@@ -730,6 +730,8 @@ static void show_help(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  Shell Utilities:");
     terminal_writestring_nl("    echo <text>       - display text");
+    terminal_writestring_nl("    <cmd> > <file>    - redirect command output to a file");
+    terminal_writestring_nl("    <cmd> >> <file>   - append command output to a file");
     terminal_writestring_nl("    clear screen      - clear terminal");
     terminal_writestring_nl("    help              - show this help");
     terminal_writestring_nl("");
@@ -1222,6 +1224,70 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
 static void process_command(char* cmd) {
     cmd = k_trim(cmd);
     if (k_strlen(cmd) == 0) return;
+
+    /* Shell redirection: `cmd > file` (truncate) or `cmd >> file` (append).
+     * Find a standalone '>' token, split the line there, run the command
+     * with terminal output captured, then write the captured text to the
+     * target (virtual file or real fs file). */
+    {
+        char* redir = 0;
+        int append = 0;
+        for (char* p = cmd; *p; p++) {
+            if (*p == '>' && (p == cmd || *(p - 1) == ' ')) {
+                redir = p;
+                if (*(p + 1) == '>') append = 1;
+                break;
+            }
+        }
+        if (redir) {
+            char* file_part = redir;
+            *file_part = 0;          /* terminate the command part at the '>' */
+            file_part++;
+            if (append) file_part++; /* skip the second '>' of '>>' */
+            while (*file_part == '>') file_part++;
+            file_part = k_trim(file_part);
+
+            if (k_strlen(file_part) == 0) {
+                terminal_writestring_nl("  Error: redirection needs a target file");
+                return;
+            }
+
+            /* Run the command with output captured (screen + serial silent). */
+            char cap[8192];
+            terminal_capture_begin(cap, sizeof(cap));
+            process_command(cmd);
+            size_t captured = terminal_capture_end();
+
+            char path[256];
+            if (resolve_path(path, file_part) < 0) {
+                terminal_writestring_nl("  Error: path too long");
+                return;
+            }
+
+            size_t written = 0;
+            if (vfile_is_virtual(path)) {
+                if (!vfile_is_writable(path)) {
+                    terminal_writestring_nl("  Error: virtual target is read-only");
+                    return;
+                }
+                written = (size_t)vfile_write(path, cap, (int)captured);
+            } else {
+                fs_file_t* file = fs_open(path, append ? 2 : 1);
+                if (!file) {
+                    terminal_writestring_nl("  Error: could not open target for writing");
+                    return;
+                }
+                written = fs_write(file, cap, captured);
+                fs_close(file);
+            }
+
+            terminal_writestring("  Redirected ");
+            terminal_put_dec(written);
+            terminal_writestring(" bytes to ");
+            terminal_writestring_nl(file_part);
+            return;
+        }
+    }
 
     /* Natural-language layer: translate English-like phrases such as
      * "list files in documents" or "write hello world to notes.txt"
