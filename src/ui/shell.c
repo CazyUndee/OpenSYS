@@ -520,6 +520,9 @@ static void cmd_copy(const char* src, const char* dst) {
         terminal_writestring_nl("  Error: Could not create destination file");
         return;
     }
+    /* fs_open(mode 1) does not shrink an existing larger file — truncate
+     * explicitly so a shorter source cannot leave stale tail bytes. */
+    fs_truncate(dst_file, 0);
     
     // Copy data
     char buf[256];

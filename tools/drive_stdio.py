@@ -91,9 +91,12 @@ class LogWatcher:
 try:
     time.sleep(14)
     w = LogWatcher()
-    if not w.wait_for("> ", timeout=60):
-        print("FAIL: shell prompt never appeared")
-        sys.exit(1)
+    if "> " not in read_log():
+        if not w.wait_for("> ", timeout=60):
+            print("FAIL: shell prompt never appeared")
+            sys.exit(1)
+    w.buf = read_log()
+    w.pos = len(w.buf)
     print("OK: shell prompt reached")
 
     # 1. stdio redirects stdout into a pipe and reads it back

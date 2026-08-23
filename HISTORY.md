@@ -1,5 +1,22 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: fs_truncate + VFS_O_TRUNC (copy-overwrite correctness)
+
+### Context
+`VFS_O_TRUNC` was accepted by `vfs_open` but silently ignored, and `fs_truncate` was declared in fs.h but never implemented — so `copy` over an existing larger file left stale tail bytes (non-resident writes preserved `existing_size`).
+
+### Changes
+- **`fs_truncate` implemented** in fs.c: frees data clusters beyond the new size (mirroring fs_unlink's bitmap clear), shrinks the resident data attribute length, updates filename `real_size`, and clamps `file->size`/`position`.
+- **fs_vfs_ops honors `VFS_O_TRUNC`**: after open, truncates to zero and rewinds, so a shorter write through the fd layer cannot leave stale bytes.
+- **Shell `cmd_copy` truncates the destination** (`fs_truncate(dst_file, 0)`), fixing the same stale-tail bug on the direct fs path.
+- Host suite: functional mock `fs_truncate` added; new test `fs_vfs_truncate_removes_stale_tail` (write long → reopen with O_TRUNC → write short → read returns only the short payload).
+- Driver fixes: `drive_vcat.py`/`drive_stdio.py` prompt wait now tolerates fast boots (prompt already in log); copy-overwrite scenario added (write long, copy short over it, read back — no stale tail).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 145/145 pass (1 new).
+- QEMU/WHPX end-to-end: `drive_vcat.py` 15/15 (incl. copy-shorter-over-longer → `read longfile.txt` prints exactly `short`); `drive_stdio.py` 2/2; `drive_dup.py` 5/5; `drive_pipe.py` 5/5.
+
 ## 2026-08-23 — Agent Session: Standard fds 0/1/2 (stdio console) + fs_write size fix
 
 ### Context

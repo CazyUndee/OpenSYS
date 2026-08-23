@@ -518,6 +518,59 @@ int fs_close(fs_file_t* file) {
     return 0;
 }
 
+/* Truncate a file to `size` bytes. Shrinking frees the data clusters
+ * beyond the new size (non-resident) or shrinks the resident data
+ * attribute; the filename real_size is updated to match. Growing beyond
+ * the current size is a no-op (writes extend naturally). Returns 0 on
+ * success, -1 on bad arguments. */
+int fs_truncate(fs_file_t* file, uint64_t size) {
+    if (!file) return -1;
+    if (size >= file->size) return 0;  /* nothing to shrink */
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + file->mft_number * MFT_ENTRY_SIZE);
+    attr_header_t* data_attr = find_attr(entry, ATTR_DATA);
+
+    if (data_attr && data_attr->non_resident) {
+        attr_nonresident_t* nr = (attr_nonresident_t*)((uint8_t*)data_attr + sizeof(attr_header_t));
+        data_run_t* runs = (data_run_t*)((uint8_t*)data_attr + nr->run_offset);
+        uint64_t num_runs = nr->last_vcn - nr->start_vcn + 1;
+        uint64_t keep_clusters = (size + FS_CLUSTER_SIZE - 1) / FS_CLUSTER_SIZE;
+        uint64_t seen = 0;
+
+        for (uint64_t i = 0; i < num_runs; i++) {
+            for (uint64_t j = 0; j < runs[i].length; j++) {
+                if (seen >= keep_clusters) {
+                    uint64_t cluster = runs[i].start_cluster + j;
+                    uint64_t byte = cluster / 8;
+                    uint64_t bit = cluster % 8;
+                    if (byte < (boot_sector->total_clusters + 7) / 8) {
+                        cluster_bitmap[byte] &= ~(1 << bit);
+                    }
+                }
+                seen++;
+            }
+        }
+
+        nr->real_size = size;
+        nr->initialized_size = size;
+    } else if (data_attr) {
+        /* Resident: shrink the attribute payload length. */
+        data_attr->length = sizeof(attr_header_t) + (uint32_t)size;
+    }
+
+    /* Update the filename real_size so reopen reports the new size. */
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
+    if (fn) {
+        fn->real_size = size;
+        fn->modify_time = get_time();
+    }
+
+    file->size = size;
+    if (file->position > size) file->position = size;
+    write_mft_entry(file->mft_number, entry);
+    return 0;
+}
+
 /* Reposition the read/write offset within a file. whence is the usual
  * 0=SET, 1=CUR, 2=END; the resulting position is clamped to [0, size].
  * Returns 0 on success, -1 on bad arguments. */

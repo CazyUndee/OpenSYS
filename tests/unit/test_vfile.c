@@ -1182,6 +1182,36 @@ static void test_fs_vfs_adapter_unlink(void) {
     TEST_PASS();
 }
 
+static void test_fs_vfs_truncate_removes_stale_tail(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* Write a long payload, then reopen with VFS_O_TRUNC and write a
+     * shorter one — the tail of the original must be gone. */
+    int fd = vfs_open("/trunc.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create open should succeed");
+    vfs_write(fd, "longer-content-here", 19);
+    vfs_close(fd);
+
+    int tfd = vfs_open("/trunc.txt", VFS_O_WRONLY | VFS_O_TRUNC);
+    ASSERT(tfd >= 0, "trunc open should succeed");
+    const char* short_payload = "short";
+    int w = vfs_write(tfd, short_payload, (size_t)strlen(short_payload));
+    ASSERT(w == (int)strlen(short_payload), "short write should succeed");
+    vfs_close(tfd);
+
+    int rfd = vfs_open("/trunc.txt", VFS_O_RDONLY);
+    ASSERT(rfd >= 0, "read open should succeed");
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(rfd, buf, sizeof(buf) - 1);
+    ASSERT(n == (int)strlen(short_payload), "read should return only the short payload");
+    ASSERT(strcmp(buf, "short") == 0, "no stale tail bytes should remain");
+    vfs_close(rfd);
+    TEST_PASS();
+}
+
 static void test_fs_vfs_mount_precedence(void) {
     vfs_init();
     vfile_init();
@@ -1345,6 +1375,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "fs_vfs_adapter_offset_read", test_fs_vfs_adapter_offset_read);
     test_suite_add_test(&suite, "fs_vfs_adapter_unlink", test_fs_vfs_adapter_unlink);
     test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
+    test_suite_add_test(&suite, "fs_vfs_truncate_removes_stale_tail", test_fs_vfs_truncate_removes_stale_tail);
 
     /* Standard fd (stdio) tests */
     test_suite_add_test(&suite, "std_fds_installed", test_std_fds_installed);

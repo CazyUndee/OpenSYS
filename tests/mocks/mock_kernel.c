@@ -276,6 +276,17 @@ int fs_mkdir(const char* path) {
     return -1;
 }
 
+int fs_truncate(fs_file_t* file, uint64_t size) {
+    if (!file) return -1;
+    int idx = (int)file->mft_number;
+    if (idx < 0 || idx >= MOCK_FS_MAX_FILES || !mock_fs[idx].used) return -1;
+    if (size >= mock_fs[idx].size) return 0;
+    mock_fs[idx].size = (uint32_t)size;
+    file->size = (uint64_t)size;
+    if (file->position > size) file->position = size;
+    return 0;
+}
+
 int fs_unlink(const char* path) {
     int idx = mock_fs_find(path);
     if (idx < 0) return -1;

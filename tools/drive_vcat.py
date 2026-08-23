@@ -94,9 +94,14 @@ try:
     time.sleep(14)
 
     w = LogWatcher()
-    if not w.wait_for("> ", timeout=60):
-        print("FAIL: shell prompt never appeared")
-        sys.exit(1)
+    # The prompt may already be in the log (fast boot) — scan from the
+    # start for it, then advance the watcher past the current content.
+    if "> " not in read_log():
+        if not w.wait_for("> ", timeout=60):
+            print("FAIL: shell prompt never appeared")
+            sys.exit(1)
+    w.buf = read_log()
+    w.pos = len(w.buf)
     print("OK: shell prompt reached")
 
     checks = []
@@ -151,10 +156,41 @@ try:
     ok = ok and "hello-from-fs" in out
     checks.append(("vcat real fs file through fd layer", ok, out))
 
-    # 8. cleanup
+    # 8. copy-overwrite truncates: write a longer file, then copy a
+    #    shorter one over it — no stale tail bytes may remain.
+    type_text("write longfile.txt this-is-a-long-content-that-is-long\n")
+    ok = w.wait_for("bytes to longfile.txt", timeout=30)
+    checks.append(("write long source", ok, w.tail(120)))
+
+    type_text("write shortfile.txt short\n")
+    ok = w.wait_for("bytes to shortfile.txt", timeout=30)
+    checks.append(("write short source", ok, w.tail(120)))
+
+    type_text("copy shortfile.txt longfile.txt\n")
+    ok = w.wait_for("Copied:", timeout=30)
+    checks.append(("copy shorter over longer", ok, w.tail(120)))
+
+    type_text("read longfile.txt\n")
+    ok = w.wait_for("> ", timeout=30)
+    out = w.tail(600)
+    # The read output is the text between "read longfile.txt" and the
+    # next prompt. The typed command echoes the long filename, so check
+    # only the content region after the command line.
+    marker = out.rfind("read longfile.txt")
+    region = out[marker:] if marker >= 0 else ""
+    ok = ok and region.count("short") >= 1 and "long-content-that-is-long" not in region
+    checks.append(("overwritten file has no stale tail", ok, region))
+
+    # 9. cleanup
     type_text("delete vcattest.txt\n")
     ok = w.wait_for("Deleted: vcattest.txt", timeout=30)
-    checks.append(("delete real file", ok, w.tail(200)))
+    checks.append(("delete vcattest", ok, w.tail(120)))
+    type_text("delete longfile.txt\n")
+    ok = w.wait_for("Deleted: longfile.txt", timeout=30)
+    checks.append(("delete longfile", ok, w.tail(120)))
+    type_text("delete shortfile.txt\n")
+    ok = w.wait_for("Deleted: shortfile.txt", timeout=30)
+    checks.append(("delete shortfile", ok, w.tail(120)))
 
     print()
     all_ok = True

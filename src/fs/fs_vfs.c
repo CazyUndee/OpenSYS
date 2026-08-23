@@ -37,6 +37,13 @@ static int fs_vfs_open(const char* path, int flags) {
     fs_file_t* f = fs_open(path, mode);
     if (!f) return -1;
 
+    /* VFS_O_TRUNC: shrink the file to zero so a shorter write cannot
+     * leave stale tail bytes from a previous larger content. */
+    if (flags & VFS_O_TRUNC) {
+        fs_truncate(f, 0);
+        fs_seek(f, 0, 0);
+    }
+
     for (int i = 0; i < FS_VFS_OPEN_MAX; i++) {
         if (!fs_vfs_handle_used[i]) {
             fs_vfs_handles[i] = f;
