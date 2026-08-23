@@ -139,6 +139,23 @@ try:
     ok = ok and "x86_64" in out
     checks.append(("vcat /sys/kernel/arch (fd layer)", ok, out))
 
+    # 7. a REAL (fs.c) file is reachable through the fd layer: write it
+    #    via the shell's write command, then vcat it back via fds.
+    type_text("write vcattest.txt hello-from-fs\n")
+    ok = w.wait_for("bytes to vcattest.txt", timeout=30)
+    checks.append(("write real file via shell", ok, w.tail(200)))
+
+    type_text("vcat /vcattest.txt\n")
+    ok = w.wait_for("bytes via fd", timeout=30)
+    out = w.tail()
+    ok = ok and "hello-from-fs" in out
+    checks.append(("vcat real fs file through fd layer", ok, out))
+
+    # 8. cleanup
+    type_text("delete vcattest.txt\n")
+    ok = w.wait_for("Deleted: vcattest.txt", timeout=30)
+    checks.append(("delete real file", ok, w.tail(200)))
+
     print()
     all_ok = True
     for name, ok, tail in checks:

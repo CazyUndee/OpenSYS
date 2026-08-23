@@ -166,6 +166,134 @@ uint16_t pci_get_io_bar(uint8_t bus, uint8_t device, uint8_t func, int bar_index
     return 0;
 }
 
+/* ---- fs mocks (functional fake backend for the fs_vfs adapter tests) ----
+ * The real fs.c is disk-backed and not compiled into the host suite.
+ * This in-memory fake gives the adapter real read/write/seek semantics
+ * to test against. */
+
+#include "../../include/fs.h"
+
+#define MOCK_FS_MAX_FILES 8
+#define MOCK_FS_MAX_SIZE  1024
+
+typedef struct {
+    char     name[64];
+    uint8_t  data[MOCK_FS_MAX_SIZE];
+    uint32_t size;
+    int      used;
+    int      is_dir;
+} mock_fs_file_t;
+
+static mock_fs_file_t mock_fs[MOCK_FS_MAX_FILES];
+
+void mock_fs_reset(void) {
+    memset(mock_fs, 0, sizeof(mock_fs));
+}
+
+static int mock_fs_find(const char* path) {
+    if (!path) return -1;
+    for (int i = 0; i < MOCK_FS_MAX_FILES; i++) {
+        if (mock_fs[i].used && strcmp(mock_fs[i].name, path) == 0) return i;
+    }
+    return -1;
+}
+
+fs_file_t* fs_open(const char* path, int mode) {
+    if (!path) return 0;
+    int idx = mock_fs_find(path);
+    if (idx < 0) {
+        if (mode == 0) return 0;
+        for (int i = 0; i < MOCK_FS_MAX_FILES; i++) {
+            if (!mock_fs[i].used) {
+                idx = i;
+                mock_fs[i].used = 1;
+                mock_fs[i].is_dir = 0;
+                size_t n = strlen(path);
+                if (n > 63) n = 63;
+                memcpy(mock_fs[i].name, path, n);
+                mock_fs[i].name[n] = 0;
+                mock_fs[i].size = 0;
+                break;
+            }
+        }
+        if (idx < 0) return 0;
+    }
+    fs_file_t* f = (fs_file_t*)kmalloc(sizeof(fs_file_t));
+    if (!f) return 0;
+    f->mft_number = (uint64_t)idx;
+    f->position = 0;
+    f->size = mock_fs[idx].size;
+    f->mode = (uint8_t)mode;
+    f->flags = 0;
+    return f;
+}
+
+int fs_close(fs_file_t* file) {
+    if (file) kfree(file);
+    return 0;
+}
+
+size_t fs_read(fs_file_t* file, void* buffer, size_t size) {
+    if (!file || !buffer) return 0;
+    int idx = (int)file->mft_number;
+    if (idx < 0 || idx >= MOCK_FS_MAX_FILES || !mock_fs[idx].used) return 0;
+    if (file->position >= mock_fs[idx].size) return 0;
+    size_t avail = mock_fs[idx].size - (uint32_t)file->position;
+    size_t n = size < avail ? size : avail;
+    memcpy(buffer, mock_fs[idx].data + file->position, n);
+    file->position += n;
+    return n;
+}
+
+size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
+    if (!file || !buffer) return 0;
+    int idx = (int)file->mft_number;
+    if (idx < 0 || idx >= MOCK_FS_MAX_FILES || !mock_fs[idx].used) return 0;
+    size_t room = MOCK_FS_MAX_SIZE - (size_t)file->position;
+    size_t n = size < room ? size : room;
+    memcpy(mock_fs[idx].data + file->position, buffer, n);
+    file->position += n;
+    if (file->position > mock_fs[idx].size) mock_fs[idx].size = (uint32_t)file->position;
+    file->size = mock_fs[idx].size;
+    return n;
+}
+
+int fs_seek(fs_file_t* file, int64_t offset, int whence) {
+    if (!file) return -1;
+    int64_t base = 0;
+    if (whence == 1) base = (int64_t)file->position;
+    else if (whence == 2) base = (int64_t)file->size;
+    else if (whence != 0) return -1;
+    int64_t pos = base + offset;
+    if (pos < 0) pos = 0;
+    if ((uint64_t)pos > file->size) pos = (int64_t)file->size;
+    file->position = (uint64_t)pos;
+    return 0;
+}
+
+int fs_mkdir(const char* path) {
+    (void)path;
+    return -1;
+}
+
+int fs_unlink(const char* path) {
+    int idx = mock_fs_find(path);
+    if (idx < 0) return -1;
+    mock_fs[idx].used = 0;
+    return 0;
+}
+
+int fs_readdir(const char* path, void (*callback)(const char*, int, uint32_t)) {
+    (void)path;
+    if (!callback) return -1;
+    for (int i = 0; i < MOCK_FS_MAX_FILES; i++) {
+        if (mock_fs[i].used && !mock_fs[i].is_dir) {
+            callback(mock_fs[i].name, 0, mock_fs[i].size);
+        }
+    }
+    return 0;
+}
+
 /* ---- VGA / terminal mock ---- */
 
 void terminal_putchar(char c) { (void)c; }

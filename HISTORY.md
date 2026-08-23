@@ -1,5 +1,23 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: fs.c VFS adapter (real files through the fd layer)
+
+### Context
+Known Issue #4's remaining half: the disk-backed fs.c filesystem had no `vfs_ops_t` adapter, so the fd/syscall layer could open virtual files and ramfs files but never the shell's actual files. Also, `fs_seek` was declared in fs.h but never implemented.
+
+### Changes
+- **`fs_seek` implemented** in fs.c (SET/CUR/END semantics, clamped to [0, size]).
+- **New `src/fs/fs_vfs.c` + `include/fs_vfs.h`**: `fs_vfs_ops` adapter (open/close/read/write/mkdir/unlink/list/size) bridging fs.c onto the VFS fd interface, with an 8-slot fs_file_t handle table and offset-seeking reads.
+- **kernel.c**: after `vfs_init()`, the root mount `/` is re-mounted with `fs_vfs_ops` — the real filesystem now serves the fd layer. Longest-prefix dispatch keeps `/proc`/`/sys`/`/dev` on the vfile adapter.
+- **Makefile + CI**: `fs/fs_vfs.c` added to `FS_SRCS` and the CI fs source loop.
+- **Host tests**: functional in-memory fs mock (open/read/write/seek/close/unlink/readdir) in `mock_kernel.c`; `fs_vfs.c` compiled into the host suite; 4 new tests (adapter roundtrip, offset read, unlink, mount precedence).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 140/140 pass (4 new).
+- CI-equivalent host-gcc compile of fs_vfs.c clean.
+- QEMU/WHPX end-to-end (`tools/drive_vcat.py`, 9/9): `write vcattest.txt hello-from-fs` then `vcat /vcattest.txt` reads the real file back through the fd layer; `vcat /proc/uptime`, `/sys/kernel/name`, `/proc/processes`, `/dev/null`, `/proc/nope` (fails at open), `/sys/kernel/arch` all still correct; `delete vcattest.txt` cleans up.
+
 ## 2026-08-23 — Agent Session: Unified VFS Mount (path-aware dispatch)
 
 ### Context

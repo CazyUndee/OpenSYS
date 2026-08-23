@@ -36,7 +36,7 @@ KERNEL = kernel0
 # Source files organized by directory
 KERNEL_SRCS = kernel/kernel.c kernel/sys.c kernel/elf.c kernel/state_graph.c kernel/intent_dispatcher.c kernel/intent_schema.c kernel/switch.c kernel/kstring.c
 MEMORY_SRCS = memory/memory.c memory/kheap.c memory/paging.c
-FS_SRCS = fs/fs.c fs/vfs.c fs/ramfs.c fs/path.c fs/vfile.c
+FS_SRCS = fs/fs.c fs/fs_vfs.c fs/vfs.c fs/ramfs.c fs/path.c fs/vfile.c
 ARCH_SRCS = arch/gdt.c arch/gdt_flush.asm arch/idt.c arch/tss.c arch/pic.c arch/timer.c arch/interrupt_handlers.c
 DRIVER_SRCS = drivers/disk.c drivers/vga.c drivers/hid.c drivers/input.c drivers/ps2_keyboard.c drivers/pci.c drivers/usb_host.c drivers/serial.c drivers/io.c drivers/part.c drivers/partition_table.c drivers/rtc.c drivers/ehci.c drivers/net.c
 PROCESS_SRCS = process/process.c process/scheduler.c process/programs.c process/vm.c

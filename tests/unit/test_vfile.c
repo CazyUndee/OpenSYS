@@ -1105,6 +1105,97 @@ static void test_vfs_open_virtual_dynamic_fd(void) {
     TEST_PASS();
 }
 
+/* ---- fs VFS adapter tests (functional fs mock backend) ---- */
+
+/* Defined in tests/mocks/mock_kernel.c — resets the fake fs store. */
+extern void mock_fs_reset(void);
+
+extern vfs_ops_t fs_vfs_ops;
+
+static void test_fs_vfs_adapter_roundtrip(void) {
+    vfs_init();
+    mock_fs_reset();
+    /* Mount the real-fs backend at the root. */
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* Create + write through the fd layer. */
+    int fd = vfs_open("/notes.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create+write open should succeed on fs backend");
+    const char* payload = "hello real fs";
+    int w = vfs_write(fd, payload, (size_t)strlen(payload));
+    ASSERT(w == (int)strlen(payload), "write should store the full payload");
+    vfs_close(fd);
+
+    /* Reopen read-only and verify content. */
+    int rfd = vfs_open("/notes.txt", VFS_O_RDONLY);
+    ASSERT(rfd >= 0, "read open should succeed on fs backend");
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(rfd, buf, sizeof(buf) - 1);
+    ASSERT(n == (int)strlen(payload), "read should return the stored length");
+    ASSERT(strcmp(buf, payload) == 0, "read content should match what was written");
+    vfs_close(rfd);
+
+    TEST_PASS();
+}
+
+static void test_fs_vfs_adapter_offset_read(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    int fd = vfs_open("/data.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create open should succeed");
+    const char* payload = "0123456789abcdef";
+    vfs_write(fd, payload, (size_t)strlen(payload));
+    vfs_close(fd);
+
+    /* The adapter seeks to the requested offset before each read. */
+    int rfd = vfs_open("/data.txt", VFS_O_RDONLY);
+    ASSERT(rfd >= 0, "read open should succeed");
+    vfs_seek(rfd, VFS_SEEK_SET, 5);
+    char buf[16];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(rfd, buf, sizeof(buf) - 1);
+    ASSERT(n == 11, "read from offset 5 should return 11 bytes");
+    ASSERT(strcmp(buf, "56789abcdef") == 0, "offset read should start at position 5");
+    vfs_close(rfd);
+
+    TEST_PASS();
+}
+
+static void test_fs_vfs_adapter_unlink(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    int fd = vfs_open("/temp.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create open should succeed");
+    vfs_write(fd, "x", 1);
+    vfs_close(fd);
+
+    ASSERT(vfs_unlink("/temp.txt") == 0, "unlink should succeed through fs adapter");
+    ASSERT(vfs_open("/temp.txt", VFS_O_RDONLY) == -1, "deleted file should not reopen");
+    TEST_PASS();
+}
+
+static void test_fs_vfs_mount_precedence(void) {
+    vfs_init();
+    vfile_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* Longest-prefix: /proc routes to vfile, everything else to fs. */
+    int vfd = vfs_open("/proc/uptime", VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "/proc/uptime should still route to the vfile adapter");
+    vfs_close(vfd);
+
+    int fd = vfs_open("/real.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "root path should route to the fs adapter");
+    vfs_close(fd);
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -1178,6 +1269,12 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_read_only_virtual_denied", test_vfs_read_only_virtual_denied);
     test_suite_add_test(&suite, "vfs_open_virtual_missing", test_vfs_open_virtual_missing);
     test_suite_add_test(&suite, "vfs_open_virtual_dynamic_fd", test_vfs_open_virtual_dynamic_fd);
+
+    /* fs backend adapter tests (functional fs mock) */
+    test_suite_add_test(&suite, "fs_vfs_adapter_roundtrip", test_fs_vfs_adapter_roundtrip);
+    test_suite_add_test(&suite, "fs_vfs_adapter_offset_read", test_fs_vfs_adapter_offset_read);
+    test_suite_add_test(&suite, "fs_vfs_adapter_unlink", test_fs_vfs_adapter_unlink);
+    test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

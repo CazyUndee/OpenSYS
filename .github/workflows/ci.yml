@@ -59,7 +59,7 @@ jobs:
             fi
           done
 
-          for src in fs vfs ramfs path vfile; do
+          for src in fs fs_vfs vfs ramfs path vfile; do
             if [ -f "src/fs/${src}.c" ]; then
               gcc -m64 -c "src/fs/${src}.c" -o "obj/fs/${src}.o" \
                 -ffreestanding -O0 -Wall -Wextra -fno-exceptions -nostdlib -fno-builtin \

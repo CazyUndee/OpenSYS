@@ -51,6 +51,7 @@
 #include "shell.h"
 #include "rtc.h"
 #include "vfs.h"
+#include "fs_vfs.h"
 #include "vfile.h"
 #include "version.h"
 
@@ -204,7 +205,11 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
     terminal_writestring("[DONE] System ready!\n");    terminal_writestring("\n[INIT] VFS layer...\n");
 	ramfs_init();
 	vfs_init();
-	terminal_writestring(" VFS mounted (ramfs at /)\n");
+	/* Mount the real (fs.c) filesystem at the root so file descriptors
+	 * reach actual files, not just ramfs. Virtual namespaces
+	 * (/proc, /sys, /dev) keep routing to vfile via longest-prefix. */
+	vfs_mount("/", &fs_vfs_ops);
+	terminal_writestring(" VFS mounted (fs at /)\n");
 
 	terminal_writestring("\n[INIT] Virtual filesystem...\n");
 	vfile_init();

@@ -518,6 +518,34 @@ int fs_close(fs_file_t* file) {
     return 0;
 }
 
+/* Reposition the read/write offset within a file. whence is the usual
+ * 0=SET, 1=CUR, 2=END; the resulting position is clamped to [0, size].
+ * Returns 0 on success, -1 on bad arguments. */
+int fs_seek(fs_file_t* file, int64_t offset, int whence) {
+    if (!file) return -1;
+
+    int64_t base;
+    switch (whence) {
+        case 0:  /* SEEK_SET */
+            base = 0;
+            break;
+        case 1:  /* SEEK_CUR */
+            base = (int64_t)file->position;
+            break;
+        case 2:  /* SEEK_END */
+            base = (int64_t)file->size;
+            break;
+        default:
+            return -1;
+    }
+
+    int64_t pos = base + offset;
+    if (pos < 0) pos = 0;
+    if ((uint64_t)pos > file->size) pos = (int64_t)file->size;
+    file->position = (uint64_t)pos;
+    return 0;
+}
+
 /* Read from file */
 size_t fs_read(fs_file_t* file, void* buffer, size_t size) {
     if (!file || !buffer || size == 0) return 0;

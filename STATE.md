@@ -150,7 +150,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ### Medium-term
 - Add AHCI/SATA driver for modern disk access
 - Implement proper ELF loading with ASLR
-- Unified VFS mount for ramfs + NTFS-style fs
+- ~~Unified VFS mount for ramfs + NTFS-style fs~~ DONE — `fs_vfs_ops` adapter exposes the real fs.c filesystem through the VFS fd layer; mounted at `/` at boot (vfile keeps `/proc`/`/sys`/`/dev` via longest-prefix); `fs_seek` implemented; functional fs mock in host suite + 4 adapter tests; verified end-to-end under QEMU/WHPX (`write` a real file, `vcat` it back through fds) 9/9 (2026-08-23)
 - Kernel debug infrastructure (assertions, stack traces)
 
 ### Long-term
@@ -164,4 +164,4 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 1. **Linker RWX warning**: The boot section is mapped as both writable and executable. This is inherent to the current memory layout — the boot section handles 16→32→64-bit transitions that require executable writable memory.
 2. **tcp.o missing .note.GNU-stack**: The freestanding cross-compiler doesn't automatically add this section to C files. The linker warning is informational and harmless.
 3. **Test suite validates structure layouts, not runtime behavior**: Host-side tests verify that kernel struct sizes and constants match expectations. Runtime behavior (actual kmalloc, paging, interrupts) requires QEMU validation.
-4. **Two filesystem layers not fully unified**: `fs.c` (NTFS-style) and `ramfs.c` are separate backends. `find_ops()` now dispatches by mount path (ramfs at `/`, vfile at `/proc`/`/sys`/`/dev`), but the disk-backed `fs.c` backend still has no `vfs_ops_t` adapter, so its files are not reachable through the fd/syscall layer (the shell's `read`/`write`/`copy` still call `fs_*` directly). Wrapping `fs.c` in a VFS ops adapter is the remaining unification step.
+4. **Two filesystem layers not fully unified**: `fs.c` (NTFS-style) and `ramfs.c` are separate backends. `find_ops()` dispatches by mount path — the root `/` now serves `fs.c` via `fs_vfs_ops` (mounted at boot), `/proc`/`/sys`/`/dev` route to vfile. `ramfs` remains as the VFS root only in host tests (which call `vfs_init()` directly); the running kernel serves real files through the fd layer. `fs_seek` (declared but unimplemented) is now implemented. Remaining: the shell's `read`/`write`/`copy`/`delete` commands still call `fs_*` directly rather than through fds (behaviorally identical, just not yet unified at the command layer).
