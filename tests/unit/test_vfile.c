@@ -943,6 +943,168 @@ static void test_vfs_dup_invalid_fd(void) {
     TEST_PASS();
 }
 
+/* ---- Test: path-aware mount dispatch (unified VFS mount) ---- */
+
+static void test_vfs_mount_path_dispatch(void) {
+    vfs_init();
+    vfile_init();
+    ramfs_init();
+
+    /* A bare name resolves to the root ramfs mount. */
+    int rfd = ramfs_create("plain.txt");
+    ASSERT(rfd >= 0, "ramfs create should succeed");
+    ramfs_write(rfd, "abc", 3);
+    int fd = vfs_open("plain.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "bare name should route to ramfs");
+    char buf[16];
+    ASSERT(vfs_read(fd, buf, 16) == 3, "ramfs read via bare name should work");
+    vfs_close(fd);
+
+    /* An absolute path under / routes to the root ramfs mount too. */
+    int fd2 = vfs_open("/plain.txt", VFS_O_RDONLY);
+    ASSERT(fd2 >= 0, "absolute path under / should route to ramfs");
+    vfs_close(fd2);
+
+    /* A path under /proc routes to the vfile adapter. */
+    int vfd = vfs_open("/proc/uptime", VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "/proc/uptime should open through the vfile adapter");
+    vfs_close(vfd);
+
+    /* /proc itself is a directory — not openable as a file. */
+    ASSERT(vfs_open("/proc", VFS_O_RDONLY) == -1, "/proc (dir) should not open as a file");
+    TEST_PASS();
+}
+
+static void test_vfs_open_virtual_file(void) {
+    vfs_init();
+    vfile_init();
+
+    int fd = vfs_open("/proc/uptime", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open(/proc/uptime) should succeed");
+
+    char buf[256];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(fd, buf, sizeof(buf) - 1);
+    ASSERT(n > 0, "vfs_read should return virtual content");
+    buf[n] = 0;
+    ASSERT(strstr(buf, "Uptime:") != NULL, "content should be the uptime resource");
+
+    /* Virtual content is regenerated per read; size should be non-zero. */
+    size_t sz = 0;
+    ASSERT(vfs_fd_info(fd, 0, &sz) == 0, "fd_info should succeed");
+    ASSERT(sz > 0, "virtual file should report a size");
+
+    ASSERT(vfs_close(fd) == 0, "vfs_close should succeed");
+    ASSERT(vfs_read(fd, buf, 16) == -1, "read after close should fail");
+    TEST_PASS();
+}
+
+static void test_vfs_open_virtual_offset_read(void) {
+    vfs_init();
+    vfile_init();
+
+    int fd = vfs_open("/proc/uptime", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should succeed");
+
+    /* Read in two halves; the second half continues from the offset. */
+    char full[256];
+    memset(full, 0, sizeof(full));
+    int n1 = vfs_read(fd, full, 8);
+    ASSERT(n1 == 8, "first chunk should be 8 bytes");
+    int n2 = vfs_read(fd, full + 8, sizeof(full) - 8);
+    ASSERT(n2 > 0, "second chunk should continue the stream");
+    full[8 + n2] = 0;
+    ASSERT(strstr(full, "Uptime:") != NULL, "concatenated chunks should be the resource");
+
+    vfs_close(fd);
+    TEST_PASS();
+}
+
+static void test_vfs_write_virtual_file(void) {
+    vfs_init();
+    vfile_init();
+
+    /* /proc/hostname is writable — write through the VFS fd layer. */
+    int fd = vfs_open("/proc/hostname", VFS_O_WRONLY);
+    ASSERT(fd >= 0, "vfs_open(/proc/hostname, O_WRONLY) should succeed");
+    int w = vfs_write(fd, "vfs-node", 8);
+    ASSERT(w == 8, "vfs_write should accept 8 bytes");
+    vfs_close(fd);
+
+    /* Read back through the direct vfile API to confirm the write landed. */
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfile_read("/proc/hostname", buf, sizeof(buf) - 1);
+    ASSERT(n > 0, "hostname should be readable");
+    buf[n] = 0;
+    ASSERT(strstr(buf, "vfs-node") != NULL, "hostname should reflect the VFS write");
+
+    /* Restore the default so other tests are unaffected. */
+    int rfd = vfs_open("/proc/hostname", VFS_O_WRONLY);
+    ASSERT(rfd >= 0, "reopen for restore");
+    vfs_write(rfd, "plan0", 5);
+    vfs_close(rfd);
+    TEST_PASS();
+}
+
+static void test_vfs_read_only_virtual_denied(void) {
+    vfs_init();
+    vfile_init();
+
+    /* Open a read-only virtual file for writing: the adapter rejects the
+     * write through vfile_write (no write callback registered). */
+    int fd = vfs_open("/proc/uptime", VFS_O_WRONLY);
+    ASSERT(fd >= 0, "vfs_open with O_WRONLY should return a slot");
+    int w = vfs_write(fd, "x", 1);
+    ASSERT(w < 0, "write to read-only virtual file should fail");
+    vfs_close(fd);
+    TEST_PASS();
+}
+
+static void test_vfs_open_virtual_missing(void) {
+    vfs_init();
+    vfile_init();
+
+    ASSERT(vfs_open("/proc/definitely-not-real", VFS_O_RDONLY) == -1,
+           "unknown virtual file should not open");
+    ASSERT(vfs_open("/sys/definitely-not-real", VFS_O_RDONLY) == -1,
+           "unknown /sys file should not open");
+    ASSERT(vfs_open("/dev/definitely-not-real", VFS_O_RDONLY) == -1,
+           "unknown /dev file should not open");
+    /* Creation is not allowed in virtual namespaces. */
+    ASSERT(vfs_open("/proc/newfile", VFS_O_CREAT | VFS_O_RDWR) == -1,
+           "O_CREAT in /proc should fail");
+    TEST_PASS();
+}
+
+static void test_vfs_open_virtual_dynamic_fd(void) {
+    vfs_init();
+    vfile_init();
+    ramfs_init();
+
+    /* Open a ramfs file so fd 0 is populated, then read it through the
+     * dynamic virtual path /proc/self/fd/0 via the VFS adapter. */
+    int rfd = ramfs_create("dyn.txt");
+    ASSERT(rfd >= 0, "ramfs create should succeed");
+    const char* payload = "dynamic-fd-payload";
+    ramfs_write(rfd, payload, (uint32_t)strlen(payload));
+
+    int fd = vfs_open("dyn.txt", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open should succeed");
+
+    /* fd 0 is the ramfs file (kernel fd table is otherwise empty). */
+    int vfd = vfs_open("/proc/self/fd/0", VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "dynamic /proc/self/fd/0 should open via the adapter");
+    char buf[64];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(vfd, buf, sizeof(buf) - 1);
+    ASSERT(n == (int)strlen(payload), "read through dynamic path should match payload");
+    ASSERT(strcmp(buf, payload) == 0, "dynamic read should be the payload");
+    vfs_close(vfd);
+    vfs_close(fd);
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -1007,6 +1169,15 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_dup2_replaces_target", test_vfs_dup2_replaces_target);
     test_suite_add_test(&suite, "vfs_dup2_same_fd_noop", test_vfs_dup2_same_fd_noop);
     test_suite_add_test(&suite, "vfs_dup_invalid_fd", test_vfs_dup_invalid_fd);
+
+    /* Unified VFS mount tests (path-aware dispatch + vfile adapter) */
+    test_suite_add_test(&suite, "vfs_mount_path_dispatch", test_vfs_mount_path_dispatch);
+    test_suite_add_test(&suite, "vfs_open_virtual_file", test_vfs_open_virtual_file);
+    test_suite_add_test(&suite, "vfs_open_virtual_offset_read", test_vfs_open_virtual_offset_read);
+    test_suite_add_test(&suite, "vfs_write_virtual_file", test_vfs_write_virtual_file);
+    test_suite_add_test(&suite, "vfs_read_only_virtual_denied", test_vfs_read_only_virtual_denied);
+    test_suite_add_test(&suite, "vfs_open_virtual_missing", test_vfs_open_virtual_missing);
+    test_suite_add_test(&suite, "vfs_open_virtual_dynamic_fd", test_vfs_open_virtual_dynamic_fd);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

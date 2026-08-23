@@ -7,6 +7,7 @@
 #include "vfs.h"
 #include "kheap.h"
 #include "ramfs.h"
+#include "vfile.h"
 #include "process.h"
 #include "kstring.h"
 
@@ -27,12 +28,120 @@ static fd_table_t* get_current_fd_table(void) {
     return &kernel_fd_table;
 }
 
-static vfs_ops_t* find_ops(const char* path) {
-    (void)path;
-    if (mount_count > 0 && mounts[0].active) {
-        return mounts[0].ops;
+/* ========== Vfile VFS adapter ==========
+ * Virtual resources (/proc, /sys, /dev) are registered as mounts with
+ * NULL ops; find_ops() routes those paths here. The adapter bridges the
+ * path-based vfile API onto the fd-based VFS interface. */
+
+#define VFILE_VFS_OPEN_MAX 8
+static char vfile_open_paths[VFILE_VFS_OPEN_MAX][VFS_MAX_PATH];
+static int  vfile_open_used[VFILE_VFS_OPEN_MAX];
+static char vfile_scratch[VFILE_MAX_CONTENT];
+
+static int vfile_vfs_open(const char* path, int flags) {
+    if (!path || (flags & VFS_O_CREAT)) return -1;
+    if (!vfile_exists(path)) return -1;
+    for (int i = 0; i < VFILE_VFS_OPEN_MAX; i++) {
+        if (!vfile_open_used[i]) {
+            int j = 0;
+            while (path[j] && j < VFS_MAX_PATH - 1) {
+                vfile_open_paths[i][j] = path[j];
+                j++;
+            }
+            vfile_open_paths[i][j] = 0;
+            vfile_open_used[i] = 1;
+            return i;
+        }
     }
+    return -1;
+}
+
+static int vfile_vfs_close(int internal_fd) {
+    if (internal_fd < 0 || internal_fd >= VFILE_VFS_OPEN_MAX) return -1;
+    vfile_open_used[internal_fd] = 0;
     return 0;
+}
+
+static int vfile_vfs_read(int internal_fd, void* buf, size_t size, size_t offset) {
+    if (internal_fd < 0 || internal_fd >= VFILE_VFS_OPEN_MAX || !vfile_open_used[internal_fd]) {
+        return -1;
+    }
+    const char* path = vfile_open_paths[internal_fd];
+    /* Generate the full virtual content, then copy the requested window.
+     * Virtual resources are small (VFILE_MAX_CONTENT), so a static
+     * scratch buffer is sufficient in this single-threaded kernel. */
+    int len = vfile_read(path, vfile_scratch, sizeof(vfile_scratch));
+    if (len < 0) return -1;
+    if (offset >= (size_t)len) return 0;
+    size_t avail = (size_t)len - offset;
+    size_t n = size < avail ? size : avail;
+    for (size_t i = 0; i < n; i++) {
+        ((uint8_t*)buf)[i] = (uint8_t)vfile_scratch[offset + i];
+    }
+    return (int)n;
+}
+
+static int vfile_vfs_write(int internal_fd, const void* buf, size_t size) {
+    if (internal_fd < 0 || internal_fd >= VFILE_VFS_OPEN_MAX || !vfile_open_used[internal_fd]) {
+        return -1;
+    }
+    return vfile_write(vfile_open_paths[internal_fd], (const char*)buf, size);
+}
+
+static int vfile_vfs_size(int internal_fd) {
+    if (internal_fd < 0 || internal_fd >= VFILE_VFS_OPEN_MAX || !vfile_open_used[internal_fd]) {
+        return 0;
+    }
+    const char* path = vfile_open_paths[internal_fd];
+    /* Dynamic /proc/self/fd/N forwards to another descriptor; generating
+     * it to measure size would consume that descriptor (side effect).
+     * Report 0 — the size is derived on read. */
+    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) return 0;
+    int len = vfile_read(path, vfile_scratch, sizeof(vfile_scratch));
+    return len < 0 ? 0 : len;
+}
+
+static vfs_ops_t vfile_vfs_ops = {
+    .open  = vfile_vfs_open,
+    .close = vfile_vfs_close,
+    .read  = vfile_vfs_read,
+    .write = vfile_vfs_write,
+    .size  = vfile_vfs_size,
+};
+
+static vfs_ops_t* find_ops(const char* path) {
+    if (!path) return 0;
+
+    int best = -1;
+    size_t best_len = 0;
+
+    if (path[0] != '/') {
+        /* Bare name (e.g. "data.txt"): resolve against the root mount. */
+        for (int i = 0; i < mount_count; i++) {
+            if (mounts[i].active && mounts[i].path[0] == '/' && mounts[i].path[1] == '\0') {
+                best = i;
+                break;
+            }
+        }
+    } else {
+        /* Longest-prefix match over the mount table. */
+        for (int i = 0; i < mount_count; i++) {
+            if (!mounts[i].active) continue;
+            size_t len = k_strlen(mounts[i].path);
+            if (len < best_len) continue;
+            if (k_strncmp(path, mounts[i].path, len) != 0) continue;
+            /* Component boundary: next char must be '/' or end-of-string,
+             * except for the root mount "/" which prefixes everything. */
+            if (len > 1 && path[len] != '\0' && path[len] != '/') continue;
+            best = i;
+            best_len = len;
+        }
+    }
+
+    if (best < 0) return 0;
+    if (mounts[best].ops) return mounts[best].ops;
+    /* Virtual namespace (/proc, /sys, /dev) — route via the vfile adapter. */
+    return &vfile_vfs_ops;
 }
 
 static vfs_node_t* alloc_node(void) {
@@ -59,15 +168,24 @@ static void free_node(vfs_node_t* node) {
 
 /* ========== Ramfs VFS ops ========== */
 
+/* Ramfs stores flat names ("data.txt"). When mounted at "/", an absolute
+ * path such as "/data.txt" must resolve to the same flat name. */
+static const char* ramfs_strip_slash(const char* path) {
+    while (path[0] == '/') path++;
+    return path;
+}
+
 static int ramfs_vfs_open(const char* path, int flags) {
+    const char* name = ramfs_strip_slash(path);
+    if (name[0] == 0) return -1;  /* cannot open the root dir as a file */
     int fd;
     if (flags & VFS_O_CREAT) {
-        fd = ramfs_find(path);
+        fd = ramfs_find(name);
         if (fd < 0) {
-            fd = ramfs_create(path);
+            fd = ramfs_create(name);
         }
     } else {
-        fd = ramfs_find(path);
+        fd = ramfs_find(name);
     }
     return fd;
 }
@@ -86,15 +204,19 @@ static int ramfs_vfs_write(int internal_fd, const void* buf, size_t size) {
 }
 
 static int ramfs_vfs_mkdir(const char* path) {
-    return ramfs_mkdir(path);
+    return ramfs_mkdir(ramfs_strip_slash(path));
 }
 
 static int ramfs_vfs_unlink(const char* path) {
-    return ramfs_delete(path);
+    return ramfs_delete(ramfs_strip_slash(path));
 }
 
 static void ramfs_vfs_list(void (*callback)(const char*, int, uint32_t)) {
     ramfs_list(callback);
+}
+
+static int ramfs_vfs_size(int internal_fd) {
+    return (int)ramfs_size(internal_fd);
 }
 
 static vfs_ops_t ramfs_vfs_ops = {
@@ -105,6 +227,7 @@ static vfs_ops_t ramfs_vfs_ops = {
     .mkdir = ramfs_vfs_mkdir,
     .unlink = ramfs_vfs_unlink,
     .list = ramfs_vfs_list,
+    .size = ramfs_vfs_size,
 };
 
 /* ========== Pipe VFS ops ==========
@@ -315,7 +438,7 @@ int vfs_open(const char* path, int flags) {
     node->internal_fd = internal_fd;
     node->ops = ops;
     node->offset = 0;
-    node->size = ramfs_size(internal_fd);
+    node->size = ops->size ? (size_t)ops->size(internal_fd) : 0;
     node->ref_count = 0;
     node->flags = flags & 3;
 

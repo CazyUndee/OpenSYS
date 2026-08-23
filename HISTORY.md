@@ -1,5 +1,26 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: Unified VFS Mount (path-aware dispatch)
+
+### Context
+Known Issue #4: `find_ops()` ignored the path entirely and always returned the ramfs ops, so the fd/syscall layer could never open virtual files (`/proc`, `/sys`, `/dev` were registered with NULL ops) or reach them through normal file descriptors.
+
+### Changes
+- `find_ops()` is now path-aware: longest-prefix match over the mount table with component-boundary checks; bare names resolve against the root mount; NULL-ops mounts route to the new vfile VFS adapter.
+- Added `vfile_vfs_ops` adapter (`open`/`close`/`read`/`write`/`size`) bridging the path-based vfile API onto the fd-based VFS interface, with a small open-path table and a static scratch buffer for the single-threaded kernel.
+- `vfs_open` now uses `ops->size` instead of a hardcoded ramfs size.
+- Added `vfile_exists()` (registered files + dynamic `/proc/self/fd/N` prefix) to vfile.c/h.
+- Added shell `vcat <path>` command — reads any path (virtual or real) through the VFS fd layer, proving virtual resources are reachable via fds.
+- 7 new host tests: path dispatch (virtual vs real vs bare name), virtual file open/read through the fd layer, dynamic `/proc/self/fd`, write through VFS.
+
+### Verification
+- Kernel builds clean (0 warnings; only the 2 pre-existing linker notes).
+- Host suite: 136/136 pass.
+- QEMU/WHPX end-to-end via `tools/drive_vcat.py` (monitor sendkey + serial file): `vcat /proc/uptime`, `/sys/kernel/name`, `/proc/processes`, `/dev/null` (0 bytes), `/proc/nope` (fails at open), `/sys/kernel/arch` — 6/6 PASS.
+
+### Root-cause note
+An earlier driver attempt hung because it wrote commands to the serial *output* TCP port; the kernel never reads serial input (shell input is PS/2/HID via QEMU monitor `sendkey`). Rewrote the driver to use the monitor, matching the working `drive_pipe.py` pattern.
+
 ## 2026-08-18 — Agent Session 1: Build Repair & Foundation
 
 ### Context

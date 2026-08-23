@@ -987,6 +987,16 @@ int vfile_is_virtual(const char* path) {
     return 0;
 }
 
+int vfile_exists(const char* path) {
+    /* Registered virtual files (not directories). */
+    for (int i = 0; i < entry_count; i++) {
+        if (!entries[i].is_dir && k_strcmp(entries[i].path, path) == 0) return 1;
+    }
+    /* Dynamic virtual files: /proc/self/fd/<N> reads through descriptor N. */
+    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) return 1;
+    return 0;
+}
+
 int vfile_read(const char* path, char* buf, size_t max_len) {
     for (int i = 0; i < entry_count; i++) {
         if (!entries[i].is_dir && k_strcmp(entries[i].path, path) == 0) {

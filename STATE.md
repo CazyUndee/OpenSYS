@@ -133,7 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
-- Integrate ramfs with VFS (currently ramfs is hardcoded in VFS)
+- ~~Integrate ramfs with VFS (currently ramfs is hardcoded in VFS)~~ DONE — `find_ops()` is now path-aware: longest-prefix match over the mount table (component-boundary aware), bare names resolve against the root mount, and `/proc`/`/sys`/`/dev` (NULL-ops mounts) route through a new vfile VFS adapter (`vfile_vfs_ops`: open/close/read/write/size); `vfs_open` uses `ops->size` instead of a hardcoded ramfs size; `vfile_exists()` added; 7 new tests (path dispatch, virtual files through the fd layer, dynamic `/proc/self/fd`); verified end-to-end under QEMU/WHPX via the new `vcat` shell command (reads any path through the fd layer) 6/6 (2026-08-23)
 - Add `part.c` to disk I/O path for partitioned access
 - ~~Add QEMU integration tests to CI pipeline~~ DONE — CI now runs the full 124-test host suite (`host-tests` job gates `verify`) and the boot test is a hard gate booting the GRUB ISO (`-cdrom bin/os.iso`) and requiring `Starting Shell` in serial output; `tools/qemu_boot_test.sh` fixed for the relocated toolchain (2026-08-21)
 - ~~Add kernel heap leak detection (magic number validation)~~ DONE — `kheap_validate()`/`kheap_dump()` implemented, `kheap_get_stats()` complete, exposed as `/proc/heap` (2026-08-21)
@@ -164,4 +164,4 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 1. **Linker RWX warning**: The boot section is mapped as both writable and executable. This is inherent to the current memory layout — the boot section handles 16→32→64-bit transitions that require executable writable memory.
 2. **tcp.o missing .note.GNU-stack**: The freestanding cross-compiler doesn't automatically add this section to C files. The linker warning is informational and harmless.
 3. **Test suite validates structure layouts, not runtime behavior**: Host-side tests verify that kernel struct sizes and constants match expectations. Runtime behavior (actual kmalloc, paging, interrupts) requires QEMU validation.
-4. **Two filesystem layers not unified**: `fs.c` (NTFS-style) and `ramfs.c` are separate. The VFS only uses ramfs. The state graph uses `fs.c` for persistence. Unification is planned.
+4. **Two filesystem layers not fully unified**: `fs.c` (NTFS-style) and `ramfs.c` are separate backends. `find_ops()` now dispatches by mount path (ramfs at `/`, vfile at `/proc`/`/sys`/`/dev`), but the disk-backed `fs.c` backend still has no `vfs_ops_t` adapter, so its files are not reachable through the fd/syscall layer (the shell's `read`/`write`/`copy` still call `fs_*` directly). Wrapping `fs.c` in a VFS ops adapter is the remaining unification step.

@@ -200,6 +200,44 @@ static void cmd_dup(void) {
     terminal_writestring_nl("  Dup test complete");
 }
 
+static void cmd_vcat(const char* name) {
+    /* Read a file through the VFS fd layer. Unlike `read`, this proves
+     * virtual resources (/proc, /sys, /dev) are reachable through the
+     * normal file descriptor interface, not just a shell special-case. */
+    if (!name || !*name) {
+        terminal_writestring_nl("  Usage: vcat <path>");
+        return;
+    }
+    char path[256];
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    int fd = vfs_open(path, VFS_O_RDONLY);
+    if (fd < 0) {
+        terminal_writestring_nl("  Error: could not open (fd layer)");
+        return;
+    }
+
+    char buf[512];
+    int total = 0;
+    terminal_writestring_nl("");
+    int n;
+    while ((n = vfs_read(fd, buf, sizeof(buf) - 1)) > 0) {
+        buf[n] = 0;
+        terminal_writestring(buf);
+        total += n;
+    }
+    terminal_writestring_nl("");
+    vfs_close(fd);
+    terminal_writestring("  (");
+    terminal_put_dec(total);
+    terminal_writestring(" bytes via fd ");
+    terminal_put_dec(fd);
+    terminal_writestring_nl(")");
+}
+
 static void cmd_ps(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  PID  Name        Active    Window");
@@ -738,6 +776,7 @@ static void show_help(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  Shell Utilities:");
     terminal_writestring_nl("    echo <text>       - display text");
+    terminal_writestring_nl("    vcat <path>       - read a file through the fd layer (incl. /proc, /sys, /dev)");
     terminal_writestring_nl("    chmod <file>      - show read-only status");
     terminal_writestring_nl("    chmod -w <file>   - protect file (read-only)");
     terminal_writestring_nl("    chmod +w <file>   - unprotect file (writable)");
@@ -1269,6 +1308,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "dup")) {
         cmd_dup();
+    }
+    else if (cmd_equals(cmd, "vcat")) {
+        cmd_vcat(arg1);
     }
     else if (cmd_equals(cmd, "chmod")) {
         cmd_chmod(arg1, arg2);

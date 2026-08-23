@@ -41,6 +41,9 @@ struct vfs_ops {
     int (*mkdir)(const char* path);
     int (*unlink)(const char* path);
     void (*list)(void (*callback)(const char*, int, uint32_t));
+    /* Optional: report the byte size of an opened internal fd. Used by
+     * vfs_open to size the node (ramfs, virtual files). May be NULL. */
+    int (*size)(int internal_fd);
 };
 
 struct vfs_mount {
