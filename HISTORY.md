@@ -1,5 +1,22 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: Standard fds 0/1/2 (stdio console) + fs_write size fix
+
+### Context
+The fd layer had pipes, dup/dup2, and the unified mount, but no standard descriptors: fd 0/1/2 didn't exist, so dup2/pipe couldn't target a process's standard output — the classic Unix composition.
+
+### Changes
+- **Console device + std fds**: `console_vfs_ops` (read → EOF, write → terminal) and `fd_table_install_std()` populate fds 0 (stdin, read-only), 1 (stdout), 2 (stderr, write-only) in both the kernel fd table (`vfs_init`) and every new process table (`fd_table_create`). `fd_table_clone` rewritten to not double-install std fds.
+- **Shell `stdio` command**: demos the primitive — dup2 a pipe's write end onto fd 1, `vfs_write(1, ...)`, read the redirected bytes back from the pipe.
+- **fs_write size-sync fix**: `fs_write` updated `fn->real_size` (on-disk) and `file->position` but never `file->size` (in-memory), so after writing, `fs_seek`/EOF clamping used a stale size of 0 — reads after a write re-read from position 0 and EOF was never reached. All three write paths now set `file->size = file->position`. This was exposed by the dup driver running against the real fs backend (root mount is now fs_vfs_ops).
+- **fs_vfs_ops mode guards removed**: the adapter denied reads on mode-1 (O_RDWR) handles, but fs_read is mode-agnostic and the VFS node flags already enforce access — the guards broke the dup test's read-via-dup.
+- QEMU driver paths updated (`~`-expansion portable to MSYS2 python).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 144/144 pass (4 new std-fd tests: fds installed, stdout write + stdin EOF, dup2 redirects stdout into a pipe, process-table std fds).
+- QEMU/WHPX end-to-end: `stdio` 2/2 (stdout→pipe roundtrip, fdinfo shows device fds); `dup` 5/5, `pipe` 5/5, `vcat` 9/9 — all green after the fs_write fix.
+
 ## 2026-08-23 — Agent Session: fs.c VFS adapter (real files through the fd layer)
 
 ### Context

@@ -749,6 +749,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         nr->last_vcn = clusters_allocated - 1;
         
         file->position += bytes_written;
+        file->size = file->position;  /* keep in-memory size in sync */
         
         /* Update file size */
         attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
@@ -863,6 +864,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
             nr->initialized_size = nr->real_size;
             
             file->position += bytes_written;
+            file->size = file->position;  /* keep in-memory size in sync */
             
             /* Update file size */
             attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
@@ -886,6 +888,7 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         }
         
         file->position += size;
+        file->size = file->position;  /* keep in-memory size in sync */
         data_attr->length = sizeof(attr_header_t) + file->position;
         
         /* Update file size */

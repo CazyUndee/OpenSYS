@@ -10,6 +10,7 @@
 #include "vfile.h"
 #include "process.h"
 #include "kstring.h"
+#include "vga.h"
 
 #define MAX_VFS_NODES 128
 
@@ -27,6 +28,8 @@ static fd_table_t* get_current_fd_table(void) {
     if (proc && proc->fd_table) return proc->fd_table;
     return &kernel_fd_table;
 }
+
+static void fd_table_install_std(fd_table_t* table);
 
 /* ========== Vfile VFS adapter ==========
  * Virtual resources (/proc, /sys, /dev) are registered as mounts with
@@ -396,6 +399,8 @@ void vfs_init(void) {
     kernel_fd_table.count = 0;
     mount_count = 0;
     vfs_mount("/", &ramfs_vfs_ops);
+    /* The kernel context (shell) also gets the standard descriptors. */
+    fd_table_install_std(&kernel_fd_table);
 }
 
 void vfs_mount(const char* path, vfs_ops_t* ops) {
@@ -643,6 +648,48 @@ int vfs_fd_info(int fd, int* out_type, size_t* out_size) {
     return 0;
 }
 
+/* ========== Standard fds + console device ==========
+ * fds 0/1/2 are the Unix standard descriptors: stdin, stdout, stderr.
+ * All are backed by a console device so that dup2/pipe/redirection can
+ * target a process's standard output, exactly like POSIX. */
+
+static int console_vfs_read(int internal_fd, void* buf, size_t size, size_t offset) {
+    (void)internal_fd; (void)buf; (void)size; (void)offset;
+    return 0;  /* no input source yet — clean EOF */
+}
+
+static int console_vfs_write(int internal_fd, const void* buf, size_t size) {
+    (void)internal_fd;
+    terminal_write((const char*)buf, size);
+    return (int)size;
+}
+
+static vfs_ops_t console_vfs_ops = {
+    .read  = console_vfs_read,
+    .write = console_vfs_write,
+};
+
+/* Install the three standard descriptors into a fresh fd table.
+ * fd 0 = stdin (read-only console), fd 1/2 = stdout/stderr (write-only
+ * console). Nodes are allocated from the shared pool and owned by the
+ * table (ref_count 1), so fd_table_close/destroy free them normally. */
+static void fd_table_install_std(fd_table_t* table) {
+    if (!table) return;
+    for (int fd = 0; fd < 3; fd++) {
+        vfs_node_t* node = alloc_node();
+        if (!node) break;
+        node->type = VFS_TYPE_DEVICE;
+        node->internal_fd = fd;
+        node->ops = &console_vfs_ops;
+        node->offset = 0;
+        node->size = 0;
+        node->ref_count = 1;
+        node->flags = (fd == 0) ? VFS_O_RDONLY : VFS_O_WRONLY;
+        table->fds[fd] = node;
+        table->count++;
+    }
+}
+
 /* ========== FD table ========== */
 
 fd_table_t* fd_table_create(void) {
@@ -652,6 +699,7 @@ fd_table_t* fd_table_create(void) {
         table->fds[i] = 0;
     }
     table->count = 0;
+    fd_table_install_std(table);
     return table;
 }
 
@@ -709,14 +757,18 @@ int fd_table_close(fd_table_t* table, int fd) {
 }
 
 fd_table_t* fd_table_clone(fd_table_t* src) {
-    fd_table_t* dst = fd_table_create();
+    fd_table_t* dst = (fd_table_t*)kmalloc(sizeof(fd_table_t));
     if (!dst) return 0;
+    for (int i = 0; i < VFS_MAX_FDS; i++) {
+        dst->fds[i] = 0;
+    }
+    dst->count = 0;
     for (int i = 0; i < VFS_MAX_FDS; i++) {
         if (src->fds[i]) {
             dst->fds[i] = src->fds[i];
             src->fds[i]->ref_count++;
+            dst->count++;
         }
     }
-    dst->count = src->count;
     return dst;
 }

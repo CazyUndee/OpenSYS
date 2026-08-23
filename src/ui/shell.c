@@ -200,6 +200,45 @@ static void cmd_dup(void) {
     terminal_writestring_nl("  Dup test complete");
 }
 
+static void cmd_stdio(void) {
+    /* Demonstrate the Unix standard descriptors: redirect fd 1 (stdout)
+     * into a pipe with dup2, write through fd 1, and read it back from
+     * the pipe — proving dup2/pipe compose with a process's stdout. */
+    int fds[2];
+    if (vfs_pipe(fds) < 0) {
+        terminal_writestring_nl("  Error: could not create pipe");
+        return;
+    }
+
+    /* Save the current stdout (fd 1), then point it at the pipe write end. */
+    int saved_stdout = vfs_dup(1);
+    if (saved_stdout < 0 || vfs_dup2(fds[1], 1) < 0) {
+        terminal_writestring_nl("  Error: dup2 onto stdout failed");
+        vfs_close(fds[0]);
+        vfs_close(fds[1]);
+        return;
+    }
+
+    const char* msg = "hello via stdout";
+    int w = vfs_write(1, msg, k_strlen(msg));
+
+    /* Restore stdout and read the redirected bytes from the pipe. */
+    vfs_dup2(saved_stdout, 1);
+    vfs_close(saved_stdout);
+
+    char buf[64];
+    int n = vfs_read(fds[0], buf, sizeof(buf) - 1);
+    buf[n] = 0;
+    vfs_close(fds[0]);
+    vfs_close(fds[1]);
+
+    terminal_writestring("  Wrote ");
+    terminal_put_dec(w);
+    terminal_writestring(" bytes to fd 1 (stdout) -> pipe; read back \"");
+    terminal_writestring(buf);
+    terminal_writestring_nl("\"");
+}
+
 static void cmd_vcat(const char* name) {
     /* Read a file through the VFS fd layer. Unlike `read`, this proves
      * virtual resources (/proc, /sys, /dev) are reachable through the
@@ -776,6 +815,7 @@ static void show_help(void) {
     terminal_writestring_nl("");
     terminal_writestring_nl("  Shell Utilities:");
     terminal_writestring_nl("    echo <text>       - display text");
+    terminal_writestring_nl("    stdio             - redirect fd 1 (stdout) into a pipe via dup2");
     terminal_writestring_nl("    vcat <path>       - read a file through the fd layer (incl. /proc, /sys, /dev)");
     terminal_writestring_nl("    chmod <file>      - show read-only status");
     terminal_writestring_nl("    chmod -w <file>   - protect file (read-only)");
@@ -1308,6 +1348,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "dup")) {
         cmd_dup();
+    }
+    else if (cmd_equals(cmd, "stdio")) {
+        cmd_stdio();
     }
     else if (cmd_equals(cmd, "vcat")) {
         cmd_vcat(arg1);

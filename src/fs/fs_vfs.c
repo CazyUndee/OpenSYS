@@ -62,7 +62,9 @@ static int fs_vfs_read(int internal_fd, void* buf, size_t size, size_t offset) {
         return -1;
     }
     fs_file_t* f = fs_vfs_handles[internal_fd];
-    if (f->mode != 0) return -1;  /* write handle is not readable */
+    /* Read access is enforced by the VFS node flags (vfs_read rejects
+     * O_WRONLY nodes); fs_read itself is mode-agnostic, so a handle
+     * opened O_RDWR must be readable. */
     if (fs_seek(f, (int64_t)offset, 0) < 0) return -1;
     return (int)fs_read(f, buf, size);
 }
@@ -72,7 +74,8 @@ static int fs_vfs_write(int internal_fd, const void* buf, size_t size) {
         return -1;
     }
     fs_file_t* f = fs_vfs_handles[internal_fd];
-    if (f->mode == 0) return -1;  /* read handle is not writable */
+    /* Write access is enforced by the VFS node flags (vfs_write rejects
+     * O_RDONLY nodes); fs_write is mode-agnostic. */
     return (int)fs_write(f, buf, size);
 }
 

@@ -297,6 +297,7 @@ int fs_readdir(const char* path, void (*callback)(const char*, int, uint32_t)) {
 /* ---- VGA / terminal mock ---- */
 
 void terminal_putchar(char c) { (void)c; }
+void terminal_write(const char* s, size_t size) { (void)s; (void)size; }
 void terminal_writestring(const char* s) { (void)s; }
 void terminal_writestring_nl(const char* s) { (void)s; }
 void terminal_put_dec(uint64_t n) { (void)n; }

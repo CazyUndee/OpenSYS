@@ -2,7 +2,7 @@
 """Drive Plan 0 shell via QEMU TCP monitor to verify the dup command."""
 import subprocess, time, socket, sys, os
 
-QEMU = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
+QEMU = os.path.join(os.path.expanduser("~"), "qemu", "qemu-system-x86_64.exe")
 KERNEL = r"C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\bin\kernel0.bin"
 LOG = r"C:\Users\roone.DESKTOP-QK3UG2M\Downloads\projects\os\serial_dup.log"
 PORT = 4451

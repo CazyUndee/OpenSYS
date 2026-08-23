@@ -1092,9 +1092,12 @@ static void test_vfs_open_virtual_dynamic_fd(void) {
     int fd = vfs_open("dyn.txt", VFS_O_RDONLY);
     ASSERT(fd >= 0, "vfs_open should succeed");
 
-    /* fd 0 is the ramfs file (kernel fd table is otherwise empty). */
-    int vfd = vfs_open("/proc/self/fd/0", VFS_O_RDONLY);
-    ASSERT(vfd >= 0, "dynamic /proc/self/fd/0 should open via the adapter");
+    /* The ramfs file is the first free fd after the standard 0/1/2. */
+    ASSERT(fd >= 3, "std fds 0/1/2 should precede the file fd");
+    char dynpath[32];
+    snprintf(dynpath, sizeof(dynpath), "/proc/self/fd/%d", fd);
+    int vfd = vfs_open(dynpath, VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "dynamic /proc/self/fd/N should open via the adapter");
     char buf[64];
     memset(buf, 0, sizeof(buf));
     int n = vfs_read(vfd, buf, sizeof(buf) - 1);
@@ -1196,6 +1199,73 @@ static void test_fs_vfs_mount_precedence(void) {
     TEST_PASS();
 }
 
+/* ---- Standard fd (stdin/stdout/stderr) tests ---- */
+
+static void test_std_fds_installed(void) {
+    vfs_init();
+    ASSERT(vfs_fd_count() >= 3, "kernel fd table should have at least the 3 std fds");
+
+    int type = 0;
+    size_t size = 0;
+    ASSERT(vfs_fd_info(0, &type, &size) == 0, "fd 0 (stdin) should exist");
+    ASSERT(type == VFS_TYPE_DEVICE, "stdin should be a device");
+    ASSERT(vfs_fd_info(1, &type, &size) == 0, "fd 1 (stdout) should exist");
+    ASSERT(type == VFS_TYPE_DEVICE, "stdout should be a device");
+    ASSERT(vfs_fd_info(2, &type, &size) == 0, "fd 2 (stderr) should exist");
+    ASSERT(type == VFS_TYPE_DEVICE, "stderr should be a device");
+    TEST_PASS();
+}
+
+static void test_std_stdout_writes_to_console(void) {
+    vfs_init();
+    /* Writing to fd 1 must succeed (console device swallows it). */
+    int w = vfs_write(1, "hi", 2);
+    ASSERT(w == 2, "write to stdout should report the byte count");
+    /* Reading from stdin (fd 0) returns clean EOF, not an error. */
+    char buf[8];
+    ASSERT(vfs_read(0, buf, sizeof(buf)) == 0, "stdin read should be EOF");
+    /* Writing to stdin (fd 0) is denied (read-only). */
+    ASSERT(vfs_write(0, "x", 1) == -1, "write to stdin should be denied");
+    TEST_PASS();
+}
+
+static void test_std_dup2_redirects_stdout(void) {
+    vfs_init();
+    int fds[2];
+    ASSERT(vfs_pipe(fds) == 0, "pipe should succeed");
+
+    /* Point fd 1 (stdout) at the pipe write end. */
+    ASSERT(vfs_dup2(fds[1], 1) == 1, "dup2 pipe-write onto stdout");
+
+    /* Write through fd 1 — must land in the pipe, not the console. */
+    const char* msg = "via-stdout";
+    ASSERT(vfs_write(1, msg, (size_t)strlen(msg)) == (int)strlen(msg),
+           "write to redirected stdout should succeed");
+
+    char buf[32];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(fds[0], buf, sizeof(buf) - 1);
+    ASSERT(n == (int)strlen(msg), "pipe should receive the stdout bytes");
+    ASSERT(strcmp(buf, msg) == 0, "redirected stdout content should round-trip");
+
+    /* Close the pipe ends (stdout at fd 1 is left pointing at the freed
+     * pipe write end — fine for this test; each test re-runs vfs_init). */
+    vfs_close(fds[0]);
+    vfs_close(fds[1]);
+    TEST_PASS();
+}
+
+static void test_std_fds_survive_process_table(void) {
+    vfs_init();
+    fd_table_t* table = fd_table_create();
+    ASSERT(table != 0, "fd_table_create should succeed");
+    ASSERT(table->count >= 3, "new process table should have std fds");
+    ASSERT(table->fds[0] && table->fds[1] && table->fds[2], "std slots populated");
+    ASSERT(table->fds[0]->type == VFS_TYPE_DEVICE, "fd 0 is a device");
+    fd_table_destroy(table);
+    TEST_PASS();
+}
+
 /* ---- Create test suite ---- */
 
 test_suite_t* create_vfile_test_suite(void) {
@@ -1275,6 +1345,12 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "fs_vfs_adapter_offset_read", test_fs_vfs_adapter_offset_read);
     test_suite_add_test(&suite, "fs_vfs_adapter_unlink", test_fs_vfs_adapter_unlink);
     test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
+
+    /* Standard fd (stdio) tests */
+    test_suite_add_test(&suite, "std_fds_installed", test_std_fds_installed);
+    test_suite_add_test(&suite, "std_stdout_writes_to_console", test_std_stdout_writes_to_console);
+    test_suite_add_test(&suite, "std_dup2_redirects_stdout", test_std_dup2_redirects_stdout);
+    test_suite_add_test(&suite, "std_fds_survive_process_table", test_std_fds_survive_process_table);
 
     /* /proc/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);

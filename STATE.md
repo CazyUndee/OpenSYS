@@ -133,6 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
+- ~~Standard fds 0/1/2 (stdio)~~ DONE — console device backs stdin/stdout/stderr in every fd table; `dup2(pipe, 1)` redirects stdout (shell `stdio` command demos it); `fs_write` now keeps `file->size` in sync (fixes EOF/seek after write); 4 std-fd tests; verified under QEMU/WHPX 2/2 plus dup/pipe/vcat regressions green (2026-08-23)
 - ~~Integrate ramfs with VFS (currently ramfs is hardcoded in VFS)~~ DONE — `find_ops()` is now path-aware: longest-prefix match over the mount table (component-boundary aware), bare names resolve against the root mount, and `/proc`/`/sys`/`/dev` (NULL-ops mounts) route through a new vfile VFS adapter (`vfile_vfs_ops`: open/close/read/write/size); `vfs_open` uses `ops->size` instead of a hardcoded ramfs size; `vfile_exists()` added; 7 new tests (path dispatch, virtual files through the fd layer, dynamic `/proc/self/fd`); verified end-to-end under QEMU/WHPX via the new `vcat` shell command (reads any path through the fd layer) 6/6 (2026-08-23)
 - Add `part.c` to disk I/O path for partitioned access
 - ~~Add QEMU integration tests to CI pipeline~~ DONE — CI now runs the full 124-test host suite (`host-tests` job gates `verify`) and the boot test is a hard gate booting the GRUB ISO (`-cdrom bin/os.iso`) and requiring `Starting Shell` in serial output; `tools/qemu_boot_test.sh` fixed for the relocated toolchain (2026-08-21)
