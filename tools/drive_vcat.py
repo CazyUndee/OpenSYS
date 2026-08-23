@@ -181,7 +181,43 @@ try:
     ok = ok and region.count("short") >= 1 and "long-content-that-is-long" not in region
     checks.append(("overwritten file has no stale tail", ok, region))
 
-    # 9. cleanup
+    # 9. rename preserves content and the read-only flag: write, protect,
+    #    rename, then confirm the renamed file is still read-only.
+    type_text("write renfile.txt rename-content\n")
+    ok = w.wait_for("bytes to renfile.txt", timeout=30)
+    checks.append(("write rename source", ok, w.tail(120)))
+
+    type_text("chmod -w renfile.txt\n")
+    ok = w.wait_for("read-only", timeout=30)
+    checks.append(("protect rename source", ok, w.tail(120)))
+
+    type_text("move renfile.txt renamed.txt\n")
+    ok = w.wait_for("Moved:", timeout=30)
+    out = w.tail(200)
+    ok = ok and "renamed.txt" in out
+    checks.append(("move uses fs_rename", ok, out))
+
+    type_text("read renamed.txt\n")
+    ok = w.wait_for("rename-content", timeout=30)
+    checks.append(("renamed file content intact", ok, w.tail(200)))
+
+    type_text("chmod renamed.txt\n")
+    ok = w.wait_for("read-only", timeout=30)
+    out = w.tail(200)
+    ok = ok and "renamed.txt: read-only" in out
+    checks.append(("read-only flag survives rename", ok, out))
+
+    type_text("delete renamed.txt\n")
+    ok = w.wait_for("read-only", timeout=30)
+    checks.append(("read-only renamed file cannot be deleted", ok, w.tail(120)))
+    type_text("chmod +w renamed.txt\n")
+    ok = w.wait_for("writable", timeout=30)
+    checks.append(("unprotect renamed file", ok, w.tail(120)))
+    type_text("delete renamed.txt\n")
+    ok = w.wait_for("Deleted: renamed.txt", timeout=30)
+    checks.append(("delete renamed file", ok, w.tail(120)))
+
+    # 10. cleanup
     type_text("delete vcattest.txt\n")
     ok = w.wait_for("Deleted: vcattest.txt", timeout=30)
     checks.append(("delete vcattest", ok, w.tail(120)))

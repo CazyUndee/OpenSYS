@@ -554,19 +554,30 @@ static void cmd_move(const char* src, const char* dst) {
         terminal_writestring_nl("  Usage: move <source> <destination>");
         return;
     }
-    
-    // Copy the file
-    cmd_copy(src, dst);
-    
-    // Delete the original
+
+    // Prefer an atomic fs_rename — it preserves the read-only flag and
+    // the file's data clusters (no copy+delete). Falls back to
+    // copy+delete when the rename is refused (e.g. target exists).
     char src_path[256];
-    if (resolve_path(src_path, src) < 0) {
+    char dst_path[256];
+    if (resolve_path(src_path, src) < 0 || resolve_path(dst_path, dst) < 0) {
         terminal_writestring_nl("  Error: path too long");
         return;
     }
-    
+
+    if (fs_rename(src_path, dst_path) == 0) {
+        terminal_writestring("  Moved: ");
+        terminal_writestring(src);
+        terminal_writestring(" -> ");
+        terminal_writestring_nl(dst);
+        return;
+    }
+
+    // Fallback: copy the file
+    cmd_copy(src, dst);
+
     if (fs_unlink(src_path) >= 0) {
-        terminal_writestring_nl("  Move completed");
+        terminal_writestring_nl("  Move completed (copy+delete)");
     } else {
         terminal_writestring_nl("  Warning: Original file not deleted");
     }

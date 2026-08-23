@@ -1,5 +1,20 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: fs_rename (atomic move preserving metadata)
+
+### Context
+The shell's `move`/`rename` did copy+delete, which lost the read-only flag (the copy was always writable) and wasted clusters. `fs_rename` was declared in fs.h but never implemented.
+
+### Changes
+- **`fs_rename` implemented** in fs.c: updates the child's `ATTR_FILENAME` (name + parent_mft + modify_time), rewrites the same-directory index entry in place, or moves the index entry between parents for cross-directory moves (`find_index_entry`/`remove_index_entry` helpers; compaction preserves the end-of-index flag). MFT flags and data clusters are preserved. Refuses when the destination already exists.
+- **Shell `move`/`rename` use `fs_rename` first**, falling back to copy+delete only when the rename is refused — so a renamed file keeps its read-only protection.
+- Host suite: functional mock `fs_rename` added; new test `fs_vfs_rename_preserves_content` (rename → old name gone, content intact, rename onto existing refused).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 146/146 pass (1 new).
+- QEMU/WHPX end-to-end: `drive_vcat.py` 23/23 — new checks write→chmod -w→move→read (content intact)→chmod (still read-only)→delete refused→chmod +w→delete OK; all other drivers (stdio, dup, pipe) still green.
+
 ## 2026-08-23 — Agent Session: fs_truncate + VFS_O_TRUNC (copy-overwrite correctness)
 
 ### Context

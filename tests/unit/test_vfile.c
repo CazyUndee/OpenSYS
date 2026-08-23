@@ -12,6 +12,7 @@
 #include "../../include/vfile.h"
 #include "../../include/vfs.h"
 #include "../../include/ramfs.h"
+#include "../../include/fs.h"
 #include <string.h>
 
 /* ---- Test: vfile_init registers entries ---- */
@@ -1212,6 +1213,36 @@ static void test_fs_vfs_truncate_removes_stale_tail(void) {
     TEST_PASS();
 }
 
+static void test_fs_vfs_rename_preserves_content(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* Create + write, then rename through the fs adapter's unlink/mkdir
+     * path isn't exposed — test fs_rename directly via the mock backend. */
+    int fd = vfs_open("/old.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create open should succeed");
+    vfs_write(fd, "rename-me", 9);
+    vfs_close(fd);
+
+    ASSERT(fs_rename("/old.txt", "/new.txt") == 0, "rename should succeed");
+    ASSERT(vfs_open("/old.txt", VFS_O_RDONLY) == -1, "old name should be gone");
+
+    int rfd = vfs_open("/new.txt", VFS_O_RDONLY);
+    ASSERT(rfd >= 0, "new name should open");
+    char buf[32];
+    memset(buf, 0, sizeof(buf));
+    int n = vfs_read(rfd, buf, sizeof(buf) - 1);
+    ASSERT(n == 9 && strcmp(buf, "rename-me") == 0, "content should survive rename");
+    vfs_close(rfd);
+
+    /* Renaming onto an existing file is refused. */
+    int efd = vfs_open("/taken.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    vfs_close(efd);
+    ASSERT(fs_rename("/new.txt", "/taken.txt") == -1, "rename onto existing should fail");
+    TEST_PASS();
+}
+
 static void test_fs_vfs_mount_precedence(void) {
     vfs_init();
     vfile_init();
@@ -1376,6 +1407,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "fs_vfs_adapter_unlink", test_fs_vfs_adapter_unlink);
     test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
     test_suite_add_test(&suite, "fs_vfs_truncate_removes_stale_tail", test_fs_vfs_truncate_removes_stale_tail);
+    test_suite_add_test(&suite, "fs_vfs_rename_preserves_content", test_fs_vfs_rename_preserves_content);
 
     /* Standard fd (stdio) tests */
     test_suite_add_test(&suite, "std_fds_installed", test_std_fds_installed);

@@ -1094,6 +1094,131 @@ int fs_unlink(const char* path) {
     return write_mft_entry(mft_num, entry) < 0 ? -1 : 0;
 }
 
+/* Find the index entry for child_mft in a directory's index root. */
+static index_entry_t* find_index_entry(mft_header_t* dir, uint64_t child_mft) {
+    attr_header_t* index_attr = find_attr(dir, ATTR_INDEX_ROOT);
+    if (!index_attr) return 0;
+
+    index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
+    index_entry_t* e = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
+    uint8_t* end = (uint8_t*)index_attr + index_attr->length;
+
+    while ((uint8_t*)e + sizeof(index_entry_t) <= end) {
+        if (e->mft_ref == child_mft) return e;
+        if (e->flags & 0x01) break;
+        if (e->length < sizeof(index_entry_t)) break;
+        e = (index_entry_t*)((uint8_t*)e + e->length);
+    }
+    return 0;
+}
+
+/* Remove the index entry for child_mft from a directory's index root,
+ * compacting the entries that followed it. */
+static void remove_index_entry(mft_header_t* dir, uint64_t child_mft) {
+    attr_header_t* index_attr = find_attr(dir, ATTR_INDEX_ROOT);
+    if (!index_attr) return;
+
+    index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
+    index_entry_t* e = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
+    uint8_t* end = (uint8_t*)index_attr + index_attr->length;
+    index_entry_t* prev = 0;
+
+    while ((uint8_t*)e + sizeof(index_entry_t) <= end) {
+        if (e->mft_ref == child_mft) {
+            uint32_t entry_len = e->length < sizeof(index_entry_t) ? sizeof(index_entry_t) : e->length;
+            uint8_t* next = (uint8_t*)e + entry_len;
+            uint32_t trailing = (uint32_t)(end - next);
+            for (uint32_t i = 0; i < trailing; i++) {
+                ((uint8_t*)e)[i] = next[i];
+            }
+            index_attr->length -= entry_len;
+            /* The entry before the removed one (if any) becomes the last. */
+            if (prev) prev->flags |= 0x01;
+            return;
+        }
+        if (e->flags & 0x01) return;
+        if (e->length < sizeof(index_entry_t)) return;
+        prev = e;
+        e = (index_entry_t*)((uint8_t*)e + e->length);
+    }
+}
+
+/* Rename (or move) a file: updates the child's filename attribute and
+ * moves its directory index entry between parents. Unlike copy+delete,
+ * the MFT flags (e.g. read-only) and data clusters are preserved. */
+int fs_rename(const char* old_path, const char* new_path) {
+    if (!old_path || !new_path || old_path[0] != '/' || new_path[0] != '/') return -1;
+
+    uint64_t mft_num = find_file(old_path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    /* Split new_path into parent directory + basename. */
+    const char* last_slash = new_path;
+    for (const char* p = new_path; *p; p++) {
+        if (*p == '/') last_slash = p;
+    }
+    const char* new_name = last_slash + 1;
+    if (!*new_name) return -1;
+
+    char parent_path[256];
+    int parent_len = (int)(last_slash - new_path);
+    if (parent_len == 0) {
+        parent_path[0] = '/';
+        parent_path[1] = 0;
+    } else {
+        for (int i = 0; i < parent_len && i < 254; i++) {
+            parent_path[i] = new_path[i];
+        }
+        parent_path[parent_len] = 0;
+    }
+
+    uint64_t new_parent = find_file(parent_path);
+    if (new_parent == (uint64_t)-1) return -1;
+
+    /* Destination already exists? Refuse (like mv refusing overwrite of
+     * a directory, but simple for now). */
+    if (find_file(new_path) != (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
+    if (!fn) return -1;
+
+    uint64_t old_parent = fn->parent_mft;
+    int name_len = 0;
+    while (new_name[name_len] && name_len < MAX_FILENAME_LEN) name_len++;
+
+    /* Update the child's own filename attribute. */
+    fn->filename_length = (uint8_t)name_len;
+    for (int i = 0; i < name_len; i++) fn->filename[i] = new_name[i];
+    fn->parent_mft = new_parent;
+    fn->modify_time = get_time();
+    write_mft_entry(mft_num, entry);
+
+    /* Update the directory index. */
+    if (old_parent == new_parent) {
+        /* Same directory: rewrite the existing index entry's filename. */
+        mft_header_t* parent = (mft_header_t*)(mft_zone + old_parent * MFT_ENTRY_SIZE);
+        index_entry_t* ie = find_index_entry(parent, mft_num);
+        if (ie) {
+            attr_filename_t* ifn = &ie->filename;
+            ifn->filename_length = (uint8_t)name_len;
+            for (int i = 0; i < name_len; i++) ifn->filename[i] = new_name[i];
+            write_mft_entry(old_parent, parent);
+        }
+    } else {
+        /* Cross-directory: remove from the old parent, add to the new. */
+        mft_header_t* oldp = (mft_header_t*)(mft_zone + old_parent * MFT_ENTRY_SIZE);
+        remove_index_entry(oldp, mft_num);
+        write_mft_entry(old_parent, oldp);
+
+        mft_header_t* newp = (mft_header_t*)(mft_zone + new_parent * MFT_ENTRY_SIZE);
+        add_dir_entry(newp, mft_num, new_name);
+        write_mft_entry(new_parent, newp);
+    }
+
+    return 0;
+}
+
 /* Permissions: mark a file read-only (ro=1) or writable (ro=0). The
  * flag lives in the MFT entry flags, so it survives remounts. */
 int fs_set_readonly(const char* path, int ro) {

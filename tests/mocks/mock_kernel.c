@@ -287,6 +287,18 @@ int fs_truncate(fs_file_t* file, uint64_t size) {
     return 0;
 }
 
+int fs_rename(const char* old_path, const char* new_path) {
+    if (!old_path || !new_path) return -1;
+    int idx = mock_fs_find(old_path);
+    if (idx < 0) return -1;
+    if (mock_fs_find(new_path) >= 0) return -1;
+    size_t n = strlen(new_path);
+    if (n > 63) n = 63;
+    memcpy(mock_fs[idx].name, new_path, n);
+    mock_fs[idx].name[n] = 0;
+    return 0;
+}
+
 int fs_unlink(const char* path) {
     int idx = mock_fs_find(path);
     if (idx < 0) return -1;
