@@ -133,6 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
+- ~~fs_unlink index consistency~~ DONE — deleting a file now removes its parent directory index entry, so a later file reusing the freed MFT slot is not listed under the old name (phantom entries); verified under QEMU/WHPX 28/28 (2026-08-23)
 - ~~fs_rename (atomic move)~~ DONE — implemented (was declared but missing): updates filename attr + directory index entry in place, supports cross-directory moves via index-entry removal/addition; shell `move`/`rename` use it first so the read-only flag and clusters survive; copy+delete fallback kept; 1 new test; verified under QEMU/WHPX 23/23 incl. chmod→move→delete-refused flow (2026-08-23)
 - ~~File truncation / VFS_O_TRUNC~~ DONE — `fs_truncate` implemented (frees clusters, shrinks resident attr, syncs real_size); fs VFS adapter honors `VFS_O_TRUNC`; shell `copy` truncates the destination so overwriting a larger file leaves no stale tail; 1 new test; verified under QEMU/WHPX 15/15 incl. copy-overwrite (2026-08-23)
 - ~~Standard fds 0/1/2 (stdio)~~ DONE — console device backs stdin/stdout/stderr in every fd table; `dup2(pipe, 1)` redirects stdout (shell `stdio` command demos it); `fs_write` now keeps `file->size` in sync (fixes EOF/seek after write); 4 std-fd tests; verified under QEMU/WHPX 2/2 plus dup/pipe/vcat regressions green (2026-08-23)

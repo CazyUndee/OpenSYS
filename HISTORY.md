@@ -1,5 +1,20 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-23 — Agent Session: fs_unlink removes parent index entry (phantom-entry fix)
+
+### Context
+`fs_unlink` cleared the MFT entry but left the file's entry in the parent's directory index root. Since `alloc_mft_entry` reuses cleared slots, a new file taking the freed MFT slot would be listed under the old name too — a phantom entry.
+
+### Changes
+- **`fs_unlink` now removes the child's index entry from its parent** via the `remove_index_entry` helper (added for fs_rename) and rewrites the parent entry — the index stays consistent with the MFT.
+- Forward-declared `remove_index_entry` (fs_unlink precedes its definition).
+- QEMU driver regression check added to `tools/drive_vcat.py`: write ghost1 → delete → write ghost2 (slot reuse) → `ls` shows only ghost2, never ghost1.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 146/146 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 28/28 (4 new ghost checks pass).
+
 ## 2026-08-23 — Agent Session: fs_rename (atomic move preserving metadata)
 
 ### Context

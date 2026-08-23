@@ -15,6 +15,9 @@ static fs_boot_sector_t* boot_sector = 0;
 static uint8_t* mft_zone = 0;
 static uint8_t* cluster_bitmap = 0;
 
+/* Defined below (used by fs_unlink and fs_rename). */
+static void remove_index_entry(mft_header_t* dir, uint64_t child_mft);
+
 /* MFT reserved entries */
 #define MFT_MFT          0  /* $MFT */
 #define MFT_MFTMIRR      1  /* $MFTMirr */
@@ -1086,6 +1089,19 @@ int fs_unlink(const char* path) {
         }
     }
     
+    /* Remove this file's entry from its parent's directory index. If
+     * left behind, a later file reusing this MFT slot would be listed
+     * under the old name too (phantom entries). */
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
+    if (fn) {
+        uint64_t parent_mft = fn->parent_mft;
+        if (parent_mft != (uint64_t)-1 && parent_mft < boot_sector->mft_size) {
+            mft_header_t* parent = (mft_header_t*)(mft_zone + parent_mft * MFT_ENTRY_SIZE);
+            remove_index_entry(parent, mft_num);
+            write_mft_entry(parent_mft, parent);
+        }
+    }
+
     /* Clear MFT entry */
     entry->magic = 0;
     entry->flags = 0;

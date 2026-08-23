@@ -3,7 +3,7 @@
 reachable through the VFS fd layer (the unified mount)."""
 import subprocess, time, socket, sys, os
 
-QEMU = os.path.expanduser(r"~\qemu\qemu-system-x86_64.exe")
+QEMU = os.path.join(os.path.expanduser("~"), "qemu", "qemu-system-x86_64.exe")
 KERNEL = os.path.join(os.path.dirname(__file__), "..", "bin", "kernel0.bin")
 LOG = os.path.join(os.path.dirname(__file__), "vcat_serial.log")
 PORT = 4449
@@ -217,7 +217,32 @@ try:
     ok = w.wait_for("Deleted: renamed.txt", timeout=30)
     checks.append(("delete renamed file", ok, w.tail(120)))
 
-    # 10. cleanup
+    # 10. phantom-entry regression: create a file, delete it, create a
+    #    new file (reusing the freed MFT slot) — the listing must show
+    #    only the new name, never the deleted one.
+    type_text("write ghost1.txt first-ghost\n")
+    ok = w.wait_for("bytes to ghost1.txt", timeout=30)
+    checks.append(("write ghost1", ok, w.tail(100)))
+    type_text("delete ghost1.txt\n")
+    ok = w.wait_for("Deleted: ghost1.txt", timeout=30)
+    checks.append(("delete ghost1", ok, w.tail(100)))
+    type_text("write ghost2.txt second-ghost\n")
+    ok = w.wait_for("bytes to ghost2.txt", timeout=30)
+    checks.append(("write ghost2 (slot reuse)", ok, w.tail(100)))
+    type_text("ls\n")
+    ok = w.wait_for("> ", timeout=30)
+    out = w.tail(400)
+    # Only the listing region after the "ls" command matters — the typed
+    # commands echo "ghost1.txt" earlier in the log.
+    marker = out.rfind("ls")
+    region = out[marker:] if marker >= 0 else ""
+    ok = ok and "ghost2.txt" in region and "ghost1.txt" not in region
+    checks.append(("no phantom ghost1 entry after slot reuse", ok, region))
+    type_text("delete ghost2.txt\n")
+    ok = w.wait_for("Deleted: ghost2.txt", timeout=30)
+    checks.append(("delete ghost2", ok, w.tail(100)))
+
+    # 11. cleanup
     type_text("delete vcattest.txt\n")
     ok = w.wait_for("Deleted: vcattest.txt", timeout=30)
     checks.append(("delete vcattest", ok, w.tail(120)))
