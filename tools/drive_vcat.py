@@ -370,7 +370,29 @@ try:
     ok = w.type_and_wait("grep Uptime /proc/uptime\n", "1: Uptime")
     checks.append(("grep Uptime /proc/uptime", ok, w.tail(200)))
 
-    # 16. cleanup
+    # 16. cat streams files larger than 255 bytes: build one with edit
+    #     (20 lines x 24 chars = ~480 bytes) and confirm the LAST line
+    #     is visible in cat output (the old cap truncated at 255).
+    ok = w.type_and_wait("edit bigfile.txt\n", "type a single")
+    checks.append(("edit opens bigfile.txt", ok, w.tail(160)))
+    for i in range(20):
+        line = f"line-{i:02d}-xxxxxxxxxxxxxxxxx"
+        type_text(line + "\n")
+        ok = w.wait_for_echo(line, timeout=15)
+        if not ok:
+            break
+    checks.append((f"edit typed {i + 1} lines", ok, w.tail(160)))
+    type_text(".\n")
+    ok = w.wait_for("Done.", timeout=15)
+    checks.append(("edit bigfile finishes", ok, w.tail(160)))
+    ok = w.type_and_wait("cat bigfile.txt\n", "line-19-xxxxxxxxxxxxxxxxx")
+    out = w.tail(800)
+    ok = ok and "line-00-xxxxxxxxxxxxxxxxx" in out
+    checks.append(("cat shows first+last line (streamed)", ok, out))
+
+    # 17. cleanup
+    ok = w.type_and_wait("delete bigfile.txt\n", "Deleted: bigfile.txt")
+    checks.append(("delete bigfile", ok, w.tail(120)))
     ok = w.type_and_wait("delete grepfile.txt\n", "Deleted: grepfile.txt")
     checks.append(("delete grepfile", ok, w.tail(120)))
     ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")

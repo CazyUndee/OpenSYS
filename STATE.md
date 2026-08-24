@@ -133,6 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
+- ~~`cat` streams beyond 255 bytes~~ DONE — `read`/`cat` now print the whole file in chunks instead of silently truncating at 255 bytes; verified under QEMU/WHPX 70/70 (2026-08-24)
 - ~~`grep` command + NL-parser hijack fix~~ DONE — `grep <pat> <file>` searches real and virtual files (line numbers, 4 KiB cap); nl_parser now only claims phrases whose verb is at the start (after fillers), so mid-command verb tokens like "grep Uptime /proc/uptime" no longer hijack into `uptime`; 3 new host assertions; verified under QEMU/WHPX 65/65 (2026-08-24)
 - ~~Read-only markers in `ls`~~ DONE — listings mark protected files `[RO]` (full-path resolution in list_callback via list_cur_dir); virtual entries unaffected; verified under QEMU/WHPX 56/56 (2026-08-24)
 - ~~Shell command history recall (arrow keys)~~ DONE — PS/2 driver now handles 0xE0-prefixed extended keys (Up→`\x01`, Down→`\x02`, others ignored); shell input loop recalls history with line redraw; `history_add` dedups consecutive entries so up-up walks older commands; verified under QEMU/WHPX 8/8 + vcat regression 53/53 (2026-08-24)

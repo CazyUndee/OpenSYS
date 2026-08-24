@@ -506,14 +506,20 @@ static void cmd_read_file(const char* name) {
         return;
     }
 
+    /* Stream the whole file in chunks — the old 255-byte cap silently
+     * truncated larger files. */
     char buf[256];
-    size_t to_read = file->size > 255 ? 255 : file->size;
-    size_t read = fs_read(file, buf, to_read);
-    buf[read] = 0;
-    fs_close(file);
-
+    size_t off = 0;
     terminal_writestring_nl("");
-    terminal_writestring_nl(buf);
+    while (off < file->size) {
+        size_t to_read = file->size - off > 255 ? 255 : file->size - off;
+        size_t read = fs_read(file, buf, to_read);
+        if (read == 0) break;
+        buf[read] = 0;
+        terminal_writestring(buf);
+        off += read;
+    }
+    fs_close(file);
     terminal_writestring_nl("");
 }
 

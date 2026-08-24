@@ -1,5 +1,18 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: `cat` streams files beyond 255 bytes
+
+### Context
+`read`/`cat` read at most 255 bytes in one shot and printed that — larger files were silently truncated mid-content with no indication.
+
+### Changes
+- **`cmd_read_file` streams the whole file**: a chunked loop reads 255 bytes at a time and prints each chunk, so `cat` on a multi-hundred-byte file shows everything. Empty-file and not-found handling unchanged.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 70/70 — 5 new checks (edit builds a ~480-byte file across 20 lines; `cat` shows both first and last lines, proving no 255-byte cut).
+
 ## 2026-08-24 — Agent Session: `grep` + NL-parser hijack fix
 
 ### Context
