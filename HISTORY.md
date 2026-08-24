@@ -1,5 +1,18 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: read-only markers in `ls`
+
+### Context
+`info <file>` reported the read-only flag, but a plain `ls` listing gave no hint which files are protected — you had to probe each file individually.
+
+### Changes
+- **`ls` marks read-only files with `[RO]`**: `list_callback` now resolves each entry's full path (via a `list_cur_dir` static set by `cmd_list`, same pattern as the recursive find/copy walkers) and calls `fs_is_readonly`; files display `[RO]  N bytes  name`, others `       N bytes  name` (aligned), dirs unchanged as `[DIR]`. Virtual entries (`/proc`, `/sys`, `/dev`) resolve through the same path and simply show no marker.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 56/56 — 2 new checks (`ls` shows `[RO]` after `chmod -w`, drops it after `chmod +w`).
+
 ## 2026-08-24 — Agent Session: shell command history recall (arrow keys)
 
 ### Context

@@ -285,8 +285,18 @@ try:
     out = w.tail(300)
     ok = ok and "Access: read-only" in out
     checks.append(("info shows read-only access", ok, out))
+    ok = w.type_and_wait("ls\n", "vcattest.txt")
+    out = w.tail(300)
+    ok = ok and "[RO]" in out
+    checks.append(("ls marks read-only file [RO]", ok, out))
     ok = w.type_and_wait("chmod +w vcattest.txt\n", "writable")
     checks.append(("unprotect vcattest", ok, w.tail(120)))
+    ok = w.type_and_wait("ls\n", "vcattest.txt")
+    out = w.tail(300)
+    marker = out.rfind("> ls")
+    region = out[marker:] if marker >= 0 else out
+    ok = ok and "[RO]" not in region
+    checks.append(("ls drops [RO] after unprotect", ok, region))
     ok = w.type_and_wait("delete infodir\n", "Deleted directory: infodir")
     checks.append(("delete infodir", ok, w.tail(120)))
 

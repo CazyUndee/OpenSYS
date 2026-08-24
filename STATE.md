@@ -133,6 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
+- ~~Read-only markers in `ls`~~ DONE — listings mark protected files `[RO]` (full-path resolution in list_callback via list_cur_dir); virtual entries unaffected; verified under QEMU/WHPX 56/56 (2026-08-24)
 - ~~Shell command history recall (arrow keys)~~ DONE — PS/2 driver now handles 0xE0-prefixed extended keys (Up→`\x01`, Down→`\x02`, others ignored); shell input loop recalls history with line redraw; `history_add` dedups consecutive entries so up-up walks older commands; verified under QEMU/WHPX 8/8 + vcat regression 53/53 (2026-08-24)
 - ~~Recursive directory copy~~ DONE — `copy <dir> <dst>` mirrors a tree (fs_readdir walk, fs_mkdir subdirs, byte copy with truncate); Unix `cp -r` semantics (existing dir → inside it); self-copy/descendant refused; depth guard; verified under QEMU/WHPX 53/53 (2026-08-24)
 - ~~Recursive `find` + index-root corruption fix~~ DONE — shell `find` now walks the real tree recursively (prints full paths, descends subdirs, depth guard) instead of the count-only intent search; fixed `add_dir_entry` reading uninitialized/stale `last->length` on an empty index in a reused MFT slot (caused `ls` on a dir to show `(empty)` after create/delete churn); verified under QEMU/WHPX 46/46 incl. nested find + churn scenario (2026-08-24)

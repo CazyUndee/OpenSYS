@@ -49,12 +49,26 @@ static int cmd_equals(const char* input, const char* pattern) {
     return k_strcmp(input, pattern) == 0;
 }
 
+static char list_cur_dir[256];  /* set by cmd_list so the callback can
+                                 * resolve full paths for read-only checks */
+
 static void list_callback(const char* name, int is_dir, uint32_t size) {
+    char full[256];
+    if (list_cur_dir[0] && k_strcmp(list_cur_dir, "/") != 0) {
+        int n = k_strlen(list_cur_dir);
+        k_strcpy(full, list_cur_dir);
+        full[n] = '/';
+        k_strcpy(full + n + 1, name);
+    } else {
+        k_strcpy(full, "/");
+        k_strcpy(full + 1, name);
+    }
     terminal_writestring("  ");
     if (is_dir) {
         terminal_writestring("[DIR]  ");
     } else {
-        terminal_writestring("  ");
+        if (fs_is_readonly(full) == 1) terminal_writestring("[RO]  ");
+        else terminal_writestring("      ");
         terminal_put_dec(size);
         terminal_writestring(" bytes  ");
     }
@@ -73,12 +87,14 @@ static void cmd_list(const char* name) {
     }
 
     terminal_writestring_nl("");
+    k_strcpy(list_cur_dir, path);
 
     /* Check virtual filesystem first */
     int vcount = vfile_list(path, list_callback);
 
     /* Also try real filesystem */
     int rcount = fs_readdir(path, list_callback);
+    list_cur_dir[0] = 0;
 
     if (vcount == 0 || rcount > 0) {
         terminal_writestring_nl("");
