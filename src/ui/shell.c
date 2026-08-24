@@ -633,6 +633,56 @@ static void cmd_rename(const char* old_name, const char* new_name) {
     cmd_move(old_name, new_name);
 }
 
+/* ---- Recursive find ----
+ * Walks the real filesystem tree (fs_readdir) and prints the full path
+ * of every entry whose name contains the pattern. Unlike the flat
+ * intent-layer search (which only counts root entries), this descends
+ * into subdirectories. */
+static char find_current_dir[256];
+static const char* find_pattern;
+static int find_match_count;
+static int find_depth;
+
+static void find_walk(const char* dir, const char* pattern, int depth);
+
+static void find_callback(const char* name, int is_dir, uint32_t size) {
+    (void)size;
+    if (find_pattern && k_strstr(name, find_pattern)) {
+        terminal_writestring("  ");
+        if (k_strcmp(find_current_dir, "/") != 0) {
+            terminal_writestring(find_current_dir);
+            terminal_writestring("/");
+        }
+        terminal_writestring_nl(name);
+        find_match_count++;
+    }
+    if (is_dir) {
+        /* Descend: join current dir + name, then recurse. */
+        char child[256];
+        if (k_strcmp(find_current_dir, "/") == 0) {
+            k_strcpy(child, "/");
+            k_strcpy(child + 1, name);
+        } else {
+            int base = k_strlen(find_current_dir);
+            k_strcpy(child, find_current_dir);
+            child[base] = '/';
+            k_strcpy(child + base + 1, name);
+        }
+        find_walk(child, find_pattern, find_depth - 1);
+    }
+}
+
+static void find_walk(const char* dir, const char* pattern, int depth) {
+    (void)pattern;
+    if (depth <= 0) return;  /* guard against cycles */
+    char saved[256];
+    k_strcpy(saved, find_current_dir);
+    k_strcpy(find_current_dir, dir);
+    find_depth = depth;
+    fs_readdir(dir, find_callback);
+    k_strcpy(find_current_dir, saved);
+}
+
 static void cmd_find(const char* pattern) {
     if (!pattern || !*pattern) {
         terminal_writestring_nl("  Usage: find <pattern>");
@@ -644,18 +694,13 @@ static void cmd_find(const char* pattern) {
     terminal_writestring(pattern);
     terminal_writestring_nl("\"");
 
-    // Dispatch through intent handler (uses vfs_list + substring match)
-    intent_t intent = intent_fs_search(pattern);
-    intent.source_process_id = 2;  // shell
-    error_t r = intent_dispatch(&intent);
+    find_pattern = pattern;
+    find_match_count = 0;
+    find_walk("/", pattern, 8);
 
-    if (r == ERR_SUCCESS) {
-        terminal_writestring("  Found ");
-        terminal_put_dec(intent.int_param2);
-        terminal_writestring_nl(" matching files");
-    } else {
-        terminal_writestring_nl("  Search failed");
-    }
+    terminal_writestring("  Found ");
+    terminal_put_dec(find_match_count);
+    terminal_writestring_nl(" matching files");
     terminal_writestring_nl("");
 }
 

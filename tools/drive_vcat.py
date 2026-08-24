@@ -290,7 +290,34 @@ try:
     ok = w.type_and_wait("delete infodir\n", "Deleted directory: infodir")
     checks.append(("delete infodir", ok, w.tail(120)))
 
-    # 13. cleanup
+    # 13. recursive find: create nested files and search from the root —
+    #     matches in subdirectories must be found with full paths.
+    ok = w.type_and_wait("mkdir findtest\n", "Created directory: findtest")
+    checks.append(("mkdir findtest", ok, w.tail(120)))
+    ok = w.type_and_wait("write findtest/deep-note.txt hidden-note\n", "bytes to findtest/deep-note.txt")
+    checks.append(("write nested file", ok, w.tail(120)))
+    ok = w.type_and_wait("find note\n", "matching files")
+    out = w.tail(500)
+    # Only the find output region matters — the earlier `write` echo also
+    # contains the full path and would fool a whole-log substring check.
+    marker = out.rfind("Searching for")
+    region = out[marker:] if marker >= 0 else out
+    ok = ok and "findtest/deep-note.txt" in region
+    checks.append(("recursive find finds nested match", ok, region))
+    ok = w.type_and_wait("find ghost\n", "matching files")
+    out = w.tail(500)
+    # No files match "ghost" (ghost1/ghost2 were deleted earlier), and
+    # crucially the search must not descend into stale entries.
+    marker = out.rfind("Searching for")
+    region = out[marker:] if marker >= 0 else out
+    ok = ok and "Found 0 matching files" in region and "ghost1" not in region
+    checks.append(("recursive find reports zero matches", ok, region))
+    ok = w.type_and_wait("delete findtest/deep-note.txt\n", "Deleted: findtest/deep-note.txt")
+    checks.append(("delete nested file", ok, w.tail(120)))
+    ok = w.type_and_wait("delete findtest\n", "Deleted directory: findtest")
+    checks.append(("delete findtest", ok, w.tail(120)))
+
+    # 14. cleanup
     ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")
     checks.append(("delete vcattest", ok, w.tail(120)))
     ok = w.type_and_wait("delete longfile.txt\n", "Deleted: longfile.txt")

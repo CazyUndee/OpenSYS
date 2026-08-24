@@ -1,5 +1,20 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: recursive `find` + index-root corruption fix
+
+### Context
+`find` only counted flat root matches (the intent-layer search literally documented "Real implementation would walk subdirectories recursively"), so nested files were invisible. While debugging, a deeper bug surfaced: after MFT slot churn (create/delete cycles), `ls` on a directory returned `(empty)` even though writes into it succeeded.
+
+### Changes
+- **Recursive `find` in the shell** (`cmd_find` rewritten): walks the real filesystem tree with `fs_readdir`, prints the full path of every matching entry, descends into subdirectories with a depth guard against cycles, and reports the match count. `find_walk`/`find_callback` replace the old intent-layer count-only search.
+- **Index-root corruption fix in `add_dir_entry`** (fs.c): when a directory's index was empty, the walk loop never executed and the insertion point read `last->length` from uninitialized/stale memory in a reused MFT slot, so the new entry landed at a wrong offset and the index became corrupt. The walk is now bounded by `index_attr->length`, `insert` tracks the true insertion point (first-entry position for an empty index), and the `last->length` validity check gates entry traversal.
+- QEMU driver: vcat find checks tightened to examine only the region after "Searching for" (they previously passed spuriously by matching the earlier `write` echo); `drive_find_debug.py` added to reproduce the churn→empty-index scenario.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 46/46 — new checks: recursive find finds `/findtest/deep-note.txt` (1 match), delete+recreate flows, `ls` lists `[DIR] findtest`; `drive_find_debug.py` confirms `find note` finds `/ft/deep-notetxt` after create/delete churn that previously corrupted the index.
+
 ## 2026-08-24 — Agent Session: fs_stat + enriched `info` command
 
 ### Context

@@ -188,25 +188,33 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
     
     index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
     
-    /* Walk existing index entries to find the last one */
+    /* Walk existing index entries to find the insertion point. The walk
+     * is bounded by index_attr->length, so a freshly created (empty)
+     * index never reads stale bytes that may linger in a reused MFT
+     * slot. `insert` tracks where the new entry goes: for an empty
+     * index it is the first entry position, regardless of whatever
+     * garbage `last->length` holds. */
     index_entry_t* last = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
     uint8_t* walk_end = (uint8_t*)index_attr + index_attr->length;
-    
-    while ((uint8_t*)last + sizeof(index_entry_t) <= walk_end) {
+    uint8_t* insert = (uint8_t*)last;
+
+    while ((uint8_t*)last + sizeof(index_entry_t) <= walk_end &&
+           last->length >= sizeof(index_entry_t)) {
         if (last->flags & 0x01) {
             /* Already indexed? */
             if (last->mft_ref == child_mft) return;
             /* Demote the previous last entry, then append after it */
             last->flags &= (uint16_t)~0x01;
+            insert = (uint8_t*)last + last->length;
             break;
         }
-        if (last->length < sizeof(index_entry_t)) break;
-        last = (index_entry_t*)((uint8_t*)last + last->length);
+        insert = (uint8_t*)last + last->length;
+        last = (index_entry_t*)insert;
     }
     
     /* New entry goes at the current end of the index (this is where the
      * trailing end-of-index marker sat; it gets overwritten and re-added) */
-    index_entry_t* idx_entry = (index_entry_t*)((uint8_t*)last + last->length);
+    index_entry_t* idx_entry = (index_entry_t*)insert;
     
     idx_entry->mft_ref = child_mft;
     idx_entry->length = sizeof(index_entry_t);
