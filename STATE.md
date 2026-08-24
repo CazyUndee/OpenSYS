@@ -133,6 +133,7 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ## Planned Changes
 
 ### Near-term
+- ~~fs_stat + fs_is_directory~~ DONE — `fs_stat` (declared but missing) fills the filename attr (name/size/times/parent); `fs_is_directory` added alongside `fs_is_readonly`; shell `info` rewritten on top of them so it works on directories and shows Type + Access (read-only/read-write); bare `info <name>` alias; 1 new test; verified under QEMU/WHPX 40/40 (2026-08-24)
 - ~~fs_rmdir (safe directory deletion)~~ DONE — implemented (was declared but missing): refuses non-empty/read-only directories; `fs_unlink` now refuses directories so a bare `delete` can never orphan children; shell `delete` tries `fs_unlink` then `fs_rmdir`; 1 new test; verified under QEMU/WHPX 33/33 incl. mkdir→child→refuse→child-delete→rmdir flow (2026-08-24)
 - ~~fs_unlink index consistency~~ DONE — deleting a file now removes its parent directory index entry, so a later file reusing the freed MFT slot is not listed under the old name (phantom entries); verified under QEMU/WHPX 28/28 (2026-08-23)
 - ~~fs_rename (atomic move)~~ DONE — implemented (was declared but missing): updates filename attr + directory index entry in place, supports cross-directory moves via index-entry removal/addition; shell `move`/`rename` use it first so the read-only flag and clusters survive; copy+delete fallback kept; 1 new test; verified under QEMU/WHPX 23/23 incl. chmod→move→delete-refused flow (2026-08-23)

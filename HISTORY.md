@@ -1,5 +1,22 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: fs_stat + enriched `info` command
+
+### Context
+`fs_stat` was declared in fs.h but never implemented, and the shell's `info` command opened the file with `fs_open` — which fails for directories — and could not report the read-only flag.
+
+### Changes
+- **`fs_stat(path, attr_filename_t*)` implemented** in fs.c: resolves the path, copies the file's `ATTR_FILENAME` payload (name, sizes, timestamps, parent MFT) into the caller's struct.
+- **`fs_is_directory(path)` added** (companion to `fs_is_readonly`): returns 1/0/-1 for dir/file/not-found.
+- **Shell `info` command rewritten** to use `fs_stat` + `fs_is_directory` + `fs_is_readonly`: works on directories, reports `Type: File|Directory`, `Access: read-only|read-write`, and the parent MFT. Bare `info <name>` alias added (the token parser always fills arg2, so the `!arg2` guard was fixed to `!*arg2`).
+- Host tests: `fs_stat`/`fs_is_directory` mocks (basename semantics matching the kernel) + 1 new test (148/148 pass).
+- QEMU driver: robust QEMU path resolution for MSYS2 python (HOME/expanduser/USERPROFILE/known paths).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 40/40 — 4 new `info` checks (file type/size, dir type, read-only access) plus all prior checks; stdio/pipe/dup regressions green.
+
 ## 2026-08-24 — Agent Session: fs_rmdir (safe directory deletion)
 
 ### Context

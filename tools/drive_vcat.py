@@ -10,7 +10,20 @@ if the echo is garbled or absent.
 """
 import subprocess, time, socket, sys, os
 
-QEMU = os.path.join(os.path.expanduser("~"), "qemu", "qemu-system-x86_64.exe")
+def _qemu_path():
+    cands = [
+        os.path.join(os.environ.get("HOME", ""), "qemu", "qemu-system-x86_64.exe"),
+        os.path.join(os.path.expanduser("~"), "qemu", "qemu-system-x86_64.exe"),
+        os.path.join(os.environ.get("USERPROFILE", ""), "qemu", "qemu-system-x86_64.exe"),
+        r"C:\Users\roone.DESKTOP-QK3UG2M\qemu\qemu-system-x86_64.exe",
+        r"D:\tools\qemu\qemu-system-x86_64.exe",
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    return cands[0]
+
+QEMU = _qemu_path()
 KERNEL = os.path.join(os.path.dirname(__file__), "..", "bin", "kernel0.bin")
 LOG = os.path.join(os.path.dirname(__file__), "vcat_serial.log")
 PORT = 4449
@@ -257,7 +270,27 @@ try:
     ok = w.type_and_wait("delete rmdirtest\n", "Deleted directory: rmdirtest")
     checks.append(("delete empty dir works", ok, w.tail(120)))
 
-    # 12. cleanup
+    # 12. info command: reports type (file vs dir), size, and access mode.
+    ok = w.type_and_wait("mkdir infodir\n", "Created directory: infodir")
+    checks.append(("mkdir infodir", ok, w.tail(120)))
+    ok = w.type_and_wait("info vcattest.txt\n", "read-write")
+    out = w.tail(300)
+    ok = ok and "Type:   File" in out and "Size:" in out
+    checks.append(("info file shows type/size/access", ok, out))
+    ok = w.type_and_wait("info infodir\n", "Directory")
+    checks.append(("info dir shows Directory type", ok, w.tail(300)))
+    ok = w.type_and_wait("chmod -w vcattest.txt\n", "read-only")
+    checks.append(("protect vcattest", ok, w.tail(120)))
+    ok = w.type_and_wait("info vcattest.txt\n", "read-only")
+    out = w.tail(300)
+    ok = ok and "Access: read-only" in out
+    checks.append(("info shows read-only access", ok, out))
+    ok = w.type_and_wait("chmod +w vcattest.txt\n", "writable")
+    checks.append(("unprotect vcattest", ok, w.tail(120)))
+    ok = w.type_and_wait("delete infodir\n", "Deleted directory: infodir")
+    checks.append(("delete infodir", ok, w.tail(120)))
+
+    # 13. cleanup
     ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")
     checks.append(("delete vcattest", ok, w.tail(120)))
     ok = w.type_and_wait("delete longfile.txt\n", "Deleted: longfile.txt")

@@ -209,6 +209,10 @@ int fs_stat(const char* path, attr_filename_t* info);
 int fs_set_readonly(const char* path, int ro);
 int fs_is_readonly(const char* path);
 
+/* Report whether the path resolves to a directory (1), a file (0),
+ * or does not exist (-1). */
+int fs_is_directory(const char* path);
+
 /* Utility */
 uint64_t fs_get_free_space(void);
 uint64_t fs_get_total_space(void);

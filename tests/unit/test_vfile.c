@@ -1269,6 +1269,39 @@ static void test_fs_rmdir_refuses_nonempty(void) {
     TEST_PASS();
 }
 
+static void test_fs_stat_and_is_directory(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* Create a plain file and a directory. */
+    int fd = vfs_open("/statfile.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create stat file");
+    ASSERT(vfs_write(fd, "hello", 5) == 5, "write 5 bytes");
+    vfs_close(fd);
+    ASSERT(vfs_mkdir("/statdir") == 0, "mkdir stat dir");
+
+    /* fs_stat reports the name, real size, and parent for the file. */
+    attr_filename_t st;
+    ASSERT(fs_stat("/statfile.txt", &st) == 0, "stat file");
+    ASSERT(st.real_size == 5, "stat reports real_size");
+    ASSERT(st.filename_length == 12, "stat reports filename_length");
+    ASSERT(memcmp(st.filename, "statfile.txt", 12) == 0, "stat reports name");
+
+    /* fs_stat works for directories too. */
+    ASSERT(fs_stat("/statdir", &st) == 0, "stat dir");
+    ASSERT(memcmp(st.filename, "statdir", 7) == 0, "stat reports dir name");
+
+    /* fs_is_directory distinguishes files from dirs; missing -> -1. */
+    ASSERT(fs_is_directory("/statdir") == 1, "is_directory dir");
+    ASSERT(fs_is_directory("/statfile.txt") == 0, "is_directory file");
+    ASSERT(fs_is_directory("/nope") == -1, "is_directory missing");
+
+    /* Stat of a missing file fails. */
+    ASSERT(fs_stat("/nope", &st) == -1, "stat missing fails");
+    TEST_PASS();
+}
+
 static void test_fs_vfs_mount_precedence(void) {
     vfs_init();
     vfile_init();
@@ -1431,6 +1464,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "fs_vfs_adapter_roundtrip", test_fs_vfs_adapter_roundtrip);
     test_suite_add_test(&suite, "fs_vfs_adapter_offset_read", test_fs_vfs_adapter_offset_read);
     test_suite_add_test(&suite, "fs_vfs_adapter_unlink", test_fs_vfs_adapter_unlink);
+    test_suite_add_test(&suite, "fs_stat_and_is_directory", test_fs_stat_and_is_directory);
     test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
     test_suite_add_test(&suite, "fs_vfs_truncate_removes_stale_tail", test_fs_vfs_truncate_removes_stale_tail);
     test_suite_add_test(&suite, "fs_vfs_rename_preserves_content", test_fs_vfs_rename_preserves_content);

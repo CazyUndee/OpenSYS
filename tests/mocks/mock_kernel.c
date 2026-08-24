@@ -332,7 +332,32 @@ int fs_rmdir(const char* path) {
 int fs_unlink(const char* path) {
     int idx = mock_fs_find(path);
     if (idx < 0) return -1;
+    if (mock_fs[idx].is_dir) return -1;
     mock_fs[idx].used = 0;
+    return 0;
+}
+
+int fs_is_directory(const char* path) {
+    if (!path) return -1;
+    int idx = mock_fs_find(path);
+    if (idx < 0) return -1;
+    return mock_fs[idx].is_dir ? 1 : 0;
+}
+
+int fs_stat(const char* path, attr_filename_t* info) {
+    if (!path || !info) return -1;
+    int idx = mock_fs_find(path);
+    if (idx < 0) return -1;
+    memset(info, 0, sizeof(*info));
+    /* Like the real kernel, report the basename (after the last '/'). */
+    const char* base = strrchr(mock_fs[idx].name, '/');
+    base = (base && base[1]) ? base + 1 : mock_fs[idx].name;
+    size_t n = strlen(base);
+    if (n > MAX_FILENAME_LEN) n = MAX_FILENAME_LEN;
+    memcpy(info->filename, base, n);
+    info->filename_length = (uint8_t)n;
+    info->real_size = mock_fs[idx].size;
+    info->parent_mft = mock_fs[idx].is_dir ? 5 : 3;
     return 0;
 }
 

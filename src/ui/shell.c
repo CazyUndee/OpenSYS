@@ -773,8 +773,8 @@ static void cmd_file_info(const char* name) {
         return;
     }
     
-    fs_file_t* file = fs_open(path, 0);
-    if (!file) {
+    attr_filename_t st;
+    if (fs_stat(path, &st) < 0) {
         terminal_writestring_nl("  Error: File not found");
         return;
     }
@@ -783,12 +783,15 @@ static void cmd_file_info(const char* name) {
     terminal_writestring("  Name:   ");
     terminal_writestring_nl(name);
     terminal_writestring("  Size:   ");
-    terminal_put_dec(file->size);
+    terminal_put_dec(st.real_size);
     terminal_writestring_nl(" bytes");
-    terminal_writestring("  Type:   File");
+    terminal_writestring("  Type:   ");
+    terminal_writestring_nl(fs_is_directory(path) == 1 ? "Directory" : "File");
+    terminal_writestring("  Access: ");
+    terminal_writestring_nl(fs_is_readonly(path) == 1 ? "read-only" : "read-write");
+    terminal_writestring("  Parent: ");
+    terminal_put_dec(st.parent_mft);
     terminal_writestring_nl("");
-    
-    fs_close(file);
 }
 
 static void show_help(void) {
@@ -1248,6 +1251,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "information") && k_strcmp(arg1, "about") == 0) {
         cmd_file_info(arg2);
+    }
+    else if (cmd_equals(cmd, "info") && arg1 && *arg1 && (!arg2 || !*arg2)) {
+        cmd_file_info(arg1);
     }
     else if (cmd_equals(cmd, "clear") && k_strcmp(arg1, "screen") == 0) {
         terminal_clear();

@@ -1303,6 +1303,34 @@ int fs_is_readonly(const char* path) {
     return (entry->flags & MFT_FLAG_READONLY) ? 1 : 0;
 }
 
+/* Report whether the path resolves to a directory (1), a file (0),
+ * or does not exist (-1). Companion to fs_is_readonly. */
+int fs_is_directory(const char* path) {
+    if (!path || !path[0]) return -1;
+
+    uint64_t mft_num = find_file(path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    return (entry->flags & MFT_FLAG_DIRECTORY) ? 1 : 0;
+}
+
+/* Stat a path: fills `info` with the file's ATTR_FILENAME payload (name,
+ * sizes, timestamps, parent). Returns 0 on success, -1 if not found. */
+int fs_stat(const char* path, attr_filename_t* info) {
+    if (!path || !path[0] || !info) return -1;
+
+    uint64_t mft_num = find_file(path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
+    if (!fn) return -1;
+
+    *info = *fn;
+    return 0;
+}
+
 /* List directory contents using index */
 int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, uint32_t size)) {
     if (!path || !callback) return -1;
