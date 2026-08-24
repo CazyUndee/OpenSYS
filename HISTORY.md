@@ -1,5 +1,19 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: `grep` + NL-parser hijack fix
+
+### Context
+No way to search file contents. While adding one, a real bug surfaced: the natural-language parser claimed ANY phrase containing a verb token anywhere, so `grep Uptime /proc/uptime` was hijacked into the `uptime` command (the mid-command "Uptime" token matched the verb table).
+
+### Changes
+- **`grep <pattern> <file>` command**: reads the whole file — virtual (`/proc/...`, `vfile_read`) or real (`fs_open` + chunked reads) — splits it into lines and prints `N: line` for every match (documented 4 KiB cap). Dispatch + help entry added.
+- **NL-parser hijack fix** (nl_parser.c): a verb can only claim a phrase if it sits at the start, preceded at most by filler words (`the`, `please`, `me`, ...). Once a non-filler precedes a token, the scan stops and the parser declines, so plain commands containing verb-looking words (uptime, list, read, ...) fall through to the token parser.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 151/151 assertions — 3 new nl_parser regressions (`grep Uptime /proc/uptime` declined, `grep beta file` declined, `please show me the files` still claimed).
+- QEMU/WHPX end-to-end: `drive_vcat.py` 65/65 — 6 new checks (edit builds a 3-line file; `grep beta` finds lines 1+3; `grep zzz` no matches; `grep Uptime /proc/uptime` matches a virtual file).
+
 ## 2026-08-24 — Agent Session: read-only markers in `ls`
 
 ### Context

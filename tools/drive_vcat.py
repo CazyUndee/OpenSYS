@@ -349,7 +349,30 @@ try:
     ok = w.type_and_wait("copy srcdir srcdir\n", "into itself")
     checks.append(("copy srcdir srcdir refused", ok, w.tail(120)))
 
-    # 15. cleanup
+    # 15. grep: build a multi-line file with the interactive edit command,
+    #     then search it (matching lines, no-match, and a virtual file).
+    ok = w.type_and_wait("edit grepfile.txt\n", "type a single")
+    checks.append(("edit opens grepfile.txt", ok, w.tail(160)))
+    for line in ("alpha beta", "gamma delta", "beta omega"):
+        type_text(line + "\n")
+        ok = w.wait_for_echo(line, timeout=15)
+        checks.append((f"edit line {line!r}", ok, w.tail(160)))
+    type_text(".\n")
+    ok = w.wait_for("Done.", timeout=15)
+    checks.append(("edit finishes", ok, w.tail(160)))
+
+    ok = w.type_and_wait("grep beta grepfile.txt\n", "3: beta omega")
+    out = w.tail(300)
+    ok = ok and "1: alpha beta" in out
+    checks.append(("grep beta finds lines 1+3", ok, out))
+    ok = w.type_and_wait("grep zzz grepfile.txt\n", "no matches")
+    checks.append(("grep zzz no matches", ok, w.tail(120)))
+    ok = w.type_and_wait("grep Uptime /proc/uptime\n", "1: Uptime")
+    checks.append(("grep Uptime /proc/uptime", ok, w.tail(200)))
+
+    # 16. cleanup
+    ok = w.type_and_wait("delete grepfile.txt\n", "Deleted: grepfile.txt")
+    checks.append(("delete grepfile", ok, w.tail(120)))
     ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")
     checks.append(("delete vcattest", ok, w.tail(120)))
     ok = w.type_and_wait("delete longfile.txt\n", "Deleted: longfile.txt")

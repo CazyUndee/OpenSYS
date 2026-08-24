@@ -517,6 +517,75 @@ static void cmd_read_file(const char* name) {
     terminal_writestring_nl("");
 }
 
+/* ---- grep ----
+ * `grep <pattern> <file>` reads the whole file (virtual or real) and
+ * prints every line containing the pattern with its line number.
+ * Files larger than 4 KiB are truncated for the search (documented
+ * limit, consistent with the small-file world the fs layer targets). */
+static void cmd_grep(const char* pattern, const char* name) {
+    if (!pattern || !*pattern || !name || !*name) {
+        terminal_writestring_nl("  Usage: grep <pattern> <file>");
+        return;
+    }
+    char path[256];
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    char content[4096];
+    int total = 0;
+
+    char vbuf[VFILE_MAX_CONTENT];
+    int vlen = vfile_read(path, vbuf, sizeof(vbuf));
+    if (vlen >= 0) {
+        total = vlen < (int)sizeof(content) - 1 ? vlen : (int)sizeof(content) - 1;
+        k_memcpy(content, vbuf, total);
+    } else {
+        fs_file_t* file = fs_open(path, 0);
+        if (!file) {
+            terminal_writestring_nl("  Error: File not found");
+            return;
+        }
+        char buf[256];
+        size_t off = 0;
+        while (off < file->size && total < (int)sizeof(content) - 1) {
+            size_t to_read = file->size - off > 256 ? 256 : file->size - off;
+            size_t r = fs_read(file, buf, to_read);
+            if (r == 0) break;
+            for (size_t i = 0; i < r && total < (int)sizeof(content) - 1; i++) {
+                content[total++] = buf[i];
+            }
+            off += r;
+        }
+        fs_close(file);
+    }
+    content[total] = 0;
+
+    int matches = 0;
+    int lineno = 0;
+    char* line = content;
+    while (line < content + total) {
+        char* end = line;
+        while (end < content + total && *end != '\n') end++;
+        lineno++;
+        char saved = *end;
+        *end = 0;
+        if (k_strstr(line, pattern)) {
+            terminal_writestring("  ");
+            terminal_put_dec(lineno);
+            terminal_writestring(": ");
+            terminal_writestring_nl(line);
+            matches++;
+        }
+        *end = saved;
+        line = end + 1;
+    }
+
+    if (matches == 0) terminal_writestring_nl("  (no matches)");
+    terminal_writestring_nl("");
+}
+
 /* ---- Recursive directory copy ----
  * `copy <dir> <dst>` mirrors a directory tree: subdirectories are
  * recreated with fs_mkdir and every file is copied byte-for-byte.
@@ -1012,6 +1081,7 @@ static void show_help(void) {
     terminal_writestring_nl("    read <name>       - display file contents");
     terminal_writestring_nl("    information about <name> - show file details");
     terminal_writestring_nl("    find <pattern>    - search for files");
+    terminal_writestring_nl("    grep <pat> <file> - print matching lines");
     terminal_writestring_nl("    go to <path>      - change directory");
     terminal_writestring_nl("    here              - print working directory");
     terminal_writestring_nl("    up                - go to parent directory");
@@ -1492,6 +1562,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "read")) {
         cmd_read_file(arg1);
+    }
+    else if (cmd_equals(cmd, "grep")) {
+        cmd_grep(arg1, arg2);
     }
     else if (cmd_equals(cmd, "find")) {
         cmd_find(arg1);
