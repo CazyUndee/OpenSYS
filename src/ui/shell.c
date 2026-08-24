@@ -388,15 +388,23 @@ static void cmd_delete(const char* name) {
         return;
     }
     
-    if (fs_unlink(path) < 0) {
-        if (fs_is_readonly(path) == 1) {
-            terminal_writestring_nl("  Error: File is read-only (chmod +w to unprotect)");
-        } else {
-            terminal_writestring_nl("  Error: File not found");
-        }
-    } else {
+    /* fs_unlink handles files (refuses directories); fs_rmdir handles
+     * empty directories (refuses non-empty and files). */
+    int r = fs_unlink(path);
+    if (r == 0) {
         terminal_writestring("  Deleted: ");
         terminal_writestring_nl(name);
+        return;
+    }
+    if (fs_rmdir(path) == 0) {
+        terminal_writestring("  Deleted directory: ");
+        terminal_writestring_nl(name);
+        return;
+    }
+    if (fs_is_readonly(path) == 1) {
+        terminal_writestring_nl("  Error: File is read-only (chmod +w to unprotect)");
+    } else {
+        terminal_writestring_nl("  Error: File not found (or directory not empty)");
     }
 }
 

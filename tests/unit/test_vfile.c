@@ -1243,6 +1243,32 @@ static void test_fs_vfs_rename_preserves_content(void) {
     TEST_PASS();
 }
 
+static void test_fs_rmdir_refuses_nonempty(void) {
+    vfs_init();
+    mock_fs_reset();
+    vfs_mount("/", &fs_vfs_ops);
+
+    /* mkdir through the fs adapter (fs_mkdir mock creates dir entries). */
+    ASSERT(vfs_mkdir("/mydir") == 0, "mkdir should succeed");
+    /* A file inside the directory (parent prefix /mydir/). */
+    int fd = vfs_open("/mydir/child.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    ASSERT(fd >= 0, "create inside dir should succeed");
+    vfs_close(fd);
+
+    /* Non-empty directory is refused. */
+    ASSERT(fs_rmdir("/mydir") == -1, "rmdir of non-empty dir should fail");
+
+    /* Delete the child, then the empty dir succeeds. */
+    ASSERT(fs_unlink("/mydir/child.txt") == 0, "delete child should succeed");
+    ASSERT(fs_rmdir("/mydir") == 0, "rmdir of empty dir should succeed");
+
+    /* Removing a file (not a dir) via rmdir is refused. */
+    int f2 = vfs_open("/plain.txt", VFS_O_CREAT | VFS_O_WRONLY);
+    vfs_close(f2);
+    ASSERT(fs_rmdir("/plain.txt") == -1, "rmdir on a file should fail");
+    TEST_PASS();
+}
+
 static void test_fs_vfs_mount_precedence(void) {
     vfs_init();
     vfile_init();
@@ -1408,6 +1434,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "fs_vfs_mount_precedence", test_fs_vfs_mount_precedence);
     test_suite_add_test(&suite, "fs_vfs_truncate_removes_stale_tail", test_fs_vfs_truncate_removes_stale_tail);
     test_suite_add_test(&suite, "fs_vfs_rename_preserves_content", test_fs_vfs_rename_preserves_content);
+    test_suite_add_test(&suite, "fs_rmdir_refuses_nonempty", test_fs_rmdir_refuses_nonempty);
 
     /* Standard fd (stdio) tests */
     test_suite_add_test(&suite, "std_fds_installed", test_std_fds_installed);

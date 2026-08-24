@@ -1,5 +1,22 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: fs_rmdir (safe directory deletion)
+
+### Context
+Directories could be created (`mkdir`) but `delete` on one just called `fs_unlink`, which cleared the MFT entry without checking children — orphaning any files inside (their `parent_mft` dangled). `fs_rmdir` was declared in fs.h but never implemented.
+
+### Changes
+- **`fs_rmdir` implemented** in fs.c: refuses non-directories, read-only directories, and non-empty directories (any in-use MFT entry whose filename attr references this dir); removes the directory's own index entry from its parent; then clears the MFT entry.
+- **`fs_unlink` now refuses directories** (must go through `fs_rmdir`), so a bare `delete` on a directory can never orphan children.
+- **Shell `delete` tries `fs_unlink` (files) then `fs_rmdir` (directories)**; error message now distinguishes read-only from not-found/non-empty.
+- Host tests: functional `fs_mkdir`/`fs_rmdir`/`fs_unlink` mocks + a directory-delete flow test (147/147 pass).
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 147/147 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 33/33 — new rmdir flow (mkdir → child write → non-empty delete refused → child delete → empty-dir delete) plus all prior checks (fd-layer virtual files, truncate, rename, phantom-entry).
+- Driver hardened: commands are now echo-verified with one retry on dropped/garbled keystrokes, and waits track the end of the echoed command so fast kernel output isn't skipped.
+
 ## 2026-08-23 — Agent Session: fs_unlink removes parent index entry (phantom-entry fix)
 
 ### Context

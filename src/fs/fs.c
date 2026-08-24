@@ -1058,6 +1058,43 @@ int fs_mkdir(const char* path) {
     return write_mft_entry(parent_mft, parent) < 0 ? -1 : 0;
 }
 
+/* Remove an empty directory: refuses non-empty directories (a child
+ * would be orphaned — its parent_mft would dangle), removes the
+ * directory's own entry from its parent's index, then clears the MFT
+ * entry. Returns 0 on success, -1 on failure. */
+int fs_rmdir(const char* path) {
+    if (!path || !path[0]) return -1;
+
+    uint64_t mft_num = find_file(path);
+    if (mft_num == (uint64_t)-1) return -1;
+
+    mft_header_t* entry = (mft_header_t*)(mft_zone + mft_num * MFT_ENTRY_SIZE);
+    if (!(entry->flags & MFT_FLAG_DIRECTORY)) return -1;  /* not a directory */
+    if (entry->flags & MFT_FLAG_READONLY) return -1;
+
+    /* Refuse if any file or directory lists this as its parent. */
+    for (uint64_t i = MFT_FIRST_USER; i < boot_sector->mft_size; i++) {
+        mft_header_t* child = (mft_header_t*)(mft_zone + i * MFT_ENTRY_SIZE);
+        if (!(child->flags & MFT_FLAG_IN_USE)) continue;
+        attr_filename_t* cfn = (attr_filename_t*)find_attr_payload(child, ATTR_FILENAME);
+        if (cfn && cfn->parent_mft == mft_num) return -1;  /* non-empty */
+    }
+
+    /* Remove our index entry from the parent directory. */
+    attr_filename_t* fn = (attr_filename_t*)find_attr_payload(entry, ATTR_FILENAME);
+    if (fn && fn->parent_mft != (uint64_t)-1 && fn->parent_mft < boot_sector->mft_size) {
+        mft_header_t* parent = (mft_header_t*)(mft_zone + fn->parent_mft * MFT_ENTRY_SIZE);
+        remove_index_entry(parent, mft_num);
+        write_mft_entry(fn->parent_mft, parent);
+    }
+
+    /* Clear MFT entry */
+    entry->magic = 0;
+    entry->flags = 0;
+    entry->used_size = 0;
+    return write_mft_entry(mft_num, entry) < 0 ? -1 : 0;
+}
+
 /* Delete file/directory */
 int fs_unlink(const char* path) {
     if (!path || !path[0]) return -1;
@@ -1069,6 +1106,9 @@ int fs_unlink(const char* path) {
 
     /* Read-only files cannot be deleted. */
     if (entry->flags & MFT_FLAG_READONLY) return -1;
+
+    /* Directories must go through fs_rmdir (empty-check + index move). */
+    if (entry->flags & MFT_FLAG_DIRECTORY) return -1;
     
     /* Free data clusters if non-resident */
     attr_header_t* data_attr = find_attr(entry, ATTR_DATA);

@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Drive Plan 0 shell via QEMU monitor (sendkey) to verify virtual files are
-reachable through the VFS fd layer (the unified mount)."""
+reachable through the VFS fd layer (the unified mount), plus fs-level
+operations (truncate, rename, phantom-entry, rmdir) end-to-end.
+
+Robustness: keystrokes occasionally drop under WHPX, garbling commands.
+Every command is therefore echo-verified: we wait for the exact typed text
+to be echoed back by the shell (proving the keys arrived), and retype once
+if the echo is garbled or absent.
+"""
 import subprocess, time, socket, sys, os
 
 QEMU = os.path.join(os.path.expanduser("~"), "qemu", "qemu-system-x86_64.exe")
@@ -86,6 +93,32 @@ class LogWatcher:
         self.pos = len(self.buf)
         return False
 
+    def wait_for_echo(self, text, timeout=12):
+        """Wait for the exact command text to appear in NEW output — the
+        shell echoes typed characters, so this proves the keys arrived.
+        Advances pos only to the END of the echoed text, so the command's
+        output (which follows the echo) is still searchable."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.buf = read_log()
+            idx = self.buf.find(text, self.pos)
+            if idx >= 0:
+                self.pos = idx + len(text)
+                return True
+            time.sleep(0.3)
+        return False
+
+    def type_and_wait(self, text, marker, timeout=30):
+        """Type a command line, verify the echo (retyping once if the keys
+        were garbled or dropped), then wait for the expected marker."""
+        stripped = text.rstrip("\n")
+        for attempt in range(2):
+            type_text(text)
+            if self.wait_for_echo(stripped):
+                return self.wait_for(marker, timeout=timeout)
+        # Echo never verified even after a retype — the channel may be stuck.
+        return self.wait_for(marker, timeout=timeout)
+
     def tail(self, n=400):
         self.buf = read_log()
         return self.buf[-n:]
@@ -94,8 +127,6 @@ try:
     time.sleep(14)
 
     w = LogWatcher()
-    # The prompt may already be in the log (fast boot) — scan from the
-    # start for it, then advance the watcher past the current content.
     if "> " not in read_log():
         if not w.wait_for("> ", timeout=60):
             print("FAIL: shell prompt never appeared")
@@ -107,150 +138,131 @@ try:
     checks = []
 
     # 1. vcat /proc/uptime through the fd layer
-    type_text("vcat /proc/uptime\n")
-    ok = w.wait_for("bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /proc/uptime\n", "bytes via fd")
     out = w.tail()
     ok = ok and "Uptime:" in out
     checks.append(("vcat /proc/uptime (fd layer)", ok, out))
 
     # 2. vcat /sys/kernel/name
-    type_text("vcat /sys/kernel/name\n")
-    ok = w.wait_for("bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /sys/kernel/name\n", "bytes via fd")
     out = w.tail()
     ok = ok and "Plan 0" in out
     checks.append(("vcat /sys/kernel/name (fd layer)", ok, out))
 
     # 3. vcat /proc/processes
-    type_text("vcat /proc/processes\n")
-    ok = w.wait_for("bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /proc/processes\n", "bytes via fd")
     out = w.tail()
     ok = ok and "PID" in out
     checks.append(("vcat /proc/processes (fd layer)", ok, out))
 
     # 4. vcat /dev/null — empty but still opens through fd layer
-    type_text("vcat /dev/null\n")
-    ok = w.wait_for("0 bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /dev/null\n", "0 bytes via fd")
     checks.append(("vcat /dev/null empty via fd", ok, w.tail(300)))
 
     # 5. vcat of a non-existent virtual file fails at open
-    type_text("vcat /proc/nope\n")
-    ok = w.wait_for("could not open", timeout=30)
+    ok = w.type_and_wait("vcat /proc/nope\n", "could not open")
     checks.append(("vcat /proc/nope fails at open", ok, w.tail(300)))
 
     # 6. ordinary ramfs file still opens through the fd layer
-    type_text("vcat /sys/kernel/arch\n")
-    ok = w.wait_for("bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /sys/kernel/arch\n", "bytes via fd")
     out = w.tail()
     ok = ok and "x86_64" in out
     checks.append(("vcat /sys/kernel/arch (fd layer)", ok, out))
 
     # 7. a REAL (fs.c) file is reachable through the fd layer: write it
     #    via the shell's write command, then vcat it back via fds.
-    type_text("write vcattest.txt hello-from-fs\n")
-    ok = w.wait_for("bytes to vcattest.txt", timeout=30)
+    ok = w.type_and_wait("write vcattest.txt hello-from-fs\n", "bytes to vcattest.txt")
     checks.append(("write real file via shell", ok, w.tail(200)))
 
-    type_text("vcat /vcattest.txt\n")
-    ok = w.wait_for("bytes via fd", timeout=30)
+    ok = w.type_and_wait("vcat /vcattest.txt\n", "bytes via fd")
     out = w.tail()
     ok = ok and "hello-from-fs" in out
     checks.append(("vcat real fs file through fd layer", ok, out))
 
     # 8. copy-overwrite truncates: write a longer file, then copy a
     #    shorter one over it — no stale tail bytes may remain.
-    type_text("write longfile.txt this-is-a-long-content-that-is-long\n")
-    ok = w.wait_for("bytes to longfile.txt", timeout=30)
+    ok = w.type_and_wait("write longfile.txt this-is-a-long-content-that-is-long\n", "bytes to longfile.txt")
     checks.append(("write long source", ok, w.tail(120)))
 
-    type_text("write shortfile.txt short\n")
-    ok = w.wait_for("bytes to shortfile.txt", timeout=30)
+    ok = w.type_and_wait("write shortfile.txt short\n", "bytes to shortfile.txt")
     checks.append(("write short source", ok, w.tail(120)))
 
-    type_text("copy shortfile.txt longfile.txt\n")
-    ok = w.wait_for("Copied:", timeout=30)
+    ok = w.type_and_wait("copy shortfile.txt longfile.txt\n", "Copied:")
     checks.append(("copy shorter over longer", ok, w.tail(120)))
 
-    type_text("read longfile.txt\n")
-    ok = w.wait_for("> ", timeout=30)
+    ok = w.type_and_wait("read longfile.txt\n", "> ")
     out = w.tail(600)
-    # The read output is the text between "read longfile.txt" and the
-    # next prompt. The typed command echoes the long filename, so check
-    # only the content region after the command line.
     marker = out.rfind("read longfile.txt")
     region = out[marker:] if marker >= 0 else ""
     ok = ok and region.count("short") >= 1 and "long-content-that-is-long" not in region
     checks.append(("overwritten file has no stale tail", ok, region))
 
-    # 9. rename preserves content and the read-only flag: write, protect,
-    #    rename, then confirm the renamed file is still read-only.
-    type_text("write renfile.txt rename-content\n")
-    ok = w.wait_for("bytes to renfile.txt", timeout=30)
+    # 9. rename preserves content and the read-only flag.
+    ok = w.type_and_wait("write renfile.txt rename-content\n", "bytes to renfile.txt")
     checks.append(("write rename source", ok, w.tail(120)))
 
-    type_text("chmod -w renfile.txt\n")
-    ok = w.wait_for("read-only", timeout=30)
+    ok = w.type_and_wait("chmod -w renfile.txt\n", "read-only")
     checks.append(("protect rename source", ok, w.tail(120)))
 
-    type_text("move renfile.txt renamed.txt\n")
-    ok = w.wait_for("Moved:", timeout=30)
+    ok = w.type_and_wait("move renfile.txt renamed.txt\n", "Moved:")
     out = w.tail(200)
     ok = ok and "renamed.txt" in out
     checks.append(("move uses fs_rename", ok, out))
 
-    type_text("read renamed.txt\n")
-    ok = w.wait_for("rename-content", timeout=30)
+    ok = w.type_and_wait("read renamed.txt\n", "rename-content")
     checks.append(("renamed file content intact", ok, w.tail(200)))
 
-    type_text("chmod renamed.txt\n")
-    ok = w.wait_for("read-only", timeout=30)
+    ok = w.type_and_wait("chmod renamed.txt\n", "read-only")
     out = w.tail(200)
     ok = ok and "renamed.txt: read-only" in out
     checks.append(("read-only flag survives rename", ok, out))
 
-    type_text("delete renamed.txt\n")
-    ok = w.wait_for("read-only", timeout=30)
+    ok = w.type_and_wait("delete renamed.txt\n", "read-only")
     checks.append(("read-only renamed file cannot be deleted", ok, w.tail(120)))
-    type_text("chmod +w renamed.txt\n")
-    ok = w.wait_for("writable", timeout=30)
+    ok = w.type_and_wait("chmod +w renamed.txt\n", "writable")
     checks.append(("unprotect renamed file", ok, w.tail(120)))
-    type_text("delete renamed.txt\n")
-    ok = w.wait_for("Deleted: renamed.txt", timeout=30)
+    ok = w.type_and_wait("delete renamed.txt\n", "Deleted: renamed.txt")
     checks.append(("delete renamed file", ok, w.tail(120)))
 
     # 10. phantom-entry regression: create a file, delete it, create a
     #    new file (reusing the freed MFT slot) — the listing must show
     #    only the new name, never the deleted one.
-    type_text("write ghost1.txt first-ghost\n")
-    ok = w.wait_for("bytes to ghost1.txt", timeout=30)
+    ok = w.type_and_wait("write ghost1.txt first-ghost\n", "bytes to ghost1.txt")
     checks.append(("write ghost1", ok, w.tail(100)))
-    type_text("delete ghost1.txt\n")
-    ok = w.wait_for("Deleted: ghost1.txt", timeout=30)
+    ok = w.type_and_wait("delete ghost1.txt\n", "Deleted: ghost1.txt")
     checks.append(("delete ghost1", ok, w.tail(100)))
-    type_text("write ghost2.txt second-ghost\n")
-    ok = w.wait_for("bytes to ghost2.txt", timeout=30)
+    ok = w.type_and_wait("write ghost2.txt second-ghost\n", "bytes to ghost2.txt")
     checks.append(("write ghost2 (slot reuse)", ok, w.tail(100)))
-    type_text("ls\n")
-    ok = w.wait_for("> ", timeout=30)
-    out = w.tail(400)
-    # Only the listing region after the "ls" command matters — the typed
-    # commands echo "ghost1.txt" earlier in the log.
-    marker = out.rfind("ls")
-    region = out[marker:] if marker >= 0 else ""
+    ok = w.type_and_wait("ls\n", "ghost2.txt")
+    out = w.tail(600)
+    # Only the region after the "ls" echo matters — earlier typed commands
+    # echo "ghost1.txt" into the log too.
+    marker = out.rfind("> ls")
+    region = out[marker:] if marker >= 0 else out
     ok = ok and "ghost2.txt" in region and "ghost1.txt" not in region
     checks.append(("no phantom ghost1 entry after slot reuse", ok, region))
-    type_text("delete ghost2.txt\n")
-    ok = w.wait_for("Deleted: ghost2.txt", timeout=30)
+    ok = w.type_and_wait("delete ghost2.txt\n", "Deleted: ghost2.txt")
     checks.append(("delete ghost2", ok, w.tail(100)))
 
-    # 11. cleanup
-    type_text("delete vcattest.txt\n")
-    ok = w.wait_for("Deleted: vcattest.txt", timeout=30)
+    # 11. rmdir flow: mkdir, add a file inside, delete the dir (refused,
+    #    not empty), delete the child, then delete the dir (works).
+    ok = w.type_and_wait("mkdir rmdirtest\n", "Created directory: rmdirtest")
+    checks.append(("mkdir rmdirtest", ok, w.tail(100)))
+    ok = w.type_and_wait("write rmdirtest/child.txt inside-child\n", "bytes to rmdirtest/child.txt")
+    checks.append(("write file inside dir", ok, w.tail(120)))
+    ok = w.type_and_wait("delete rmdirtest\n", "not empty")
+    checks.append(("delete non-empty dir refused", ok, w.tail(120)))
+    ok = w.type_and_wait("delete rmdirtest/child.txt\n", "Deleted: rmdirtest/child.txt")
+    checks.append(("delete child file", ok, w.tail(120)))
+    ok = w.type_and_wait("delete rmdirtest\n", "Deleted directory: rmdirtest")
+    checks.append(("delete empty dir works", ok, w.tail(120)))
+
+    # 12. cleanup
+    ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")
     checks.append(("delete vcattest", ok, w.tail(120)))
-    type_text("delete longfile.txt\n")
-    ok = w.wait_for("Deleted: longfile.txt", timeout=30)
+    ok = w.type_and_wait("delete longfile.txt\n", "Deleted: longfile.txt")
     checks.append(("delete longfile", ok, w.tail(120)))
-    type_text("delete shortfile.txt\n")
-    ok = w.wait_for("Deleted: shortfile.txt", timeout=30)
+    ok = w.type_and_wait("delete shortfile.txt\n", "Deleted: shortfile.txt")
     checks.append(("delete shortfile", ok, w.tail(120)))
 
     print()

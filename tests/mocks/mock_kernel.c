@@ -272,7 +272,20 @@ int fs_seek(fs_file_t* file, int64_t offset, int whence) {
 }
 
 int fs_mkdir(const char* path) {
-    (void)path;
+    if (!path) return -1;
+    if (mock_fs_find(path) >= 0) return -1;
+    for (int i = 0; i < MOCK_FS_MAX_FILES; i++) {
+        if (!mock_fs[i].used) {
+            size_t n = strlen(path);
+            if (n > 63) n = 63;
+            memcpy(mock_fs[i].name, path, n);
+            mock_fs[i].name[n] = 0;
+            mock_fs[i].used = 1;
+            mock_fs[i].is_dir = 1;
+            mock_fs[i].size = 0;
+            return 0;
+        }
+    }
     return -1;
 }
 
@@ -296,6 +309,23 @@ int fs_rename(const char* old_path, const char* new_path) {
     if (n > 63) n = 63;
     memcpy(mock_fs[idx].name, new_path, n);
     mock_fs[idx].name[n] = 0;
+    return 0;
+}
+
+int fs_rmdir(const char* path) {
+    if (!path) return -1;
+    int idx = mock_fs_find(path);
+    if (idx < 0) return -1;
+    if (mock_fs[idx].is_dir == 0) return -1;
+    /* Refuse non-empty: any other entry with this dir as prefix parent. */
+    for (int i = 0; i < MOCK_FS_MAX_FILES; i++) {
+        if (mock_fs[i].used && i != idx &&
+            strncmp(mock_fs[i].name, path, strlen(path)) == 0 &&
+            mock_fs[i].name[strlen(path)] == '/') {
+            return -1;
+        }
+    }
+    mock_fs[idx].used = 0;
     return 0;
 }
 
