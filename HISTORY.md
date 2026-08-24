@@ -1,5 +1,20 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: shell command history recall (arrow keys)
+
+### Context
+The shell stored command history (`history_add` + `history` command) but it was unreachable — the PS/2 driver ignored 0xE0-prefixed extended scancodes entirely, so the up/down arrow keys did nothing. Users had to retype every command.
+
+### Changes
+- **PS/2 driver handles extended (0xE0) keys**: `ext_pending` tracks the 0xE0 prefix; Up (0x48) is delivered to the shell as `\x01` and Down (0x50) as `\x02`; other extended keys (Home/End/Del/PageUp/PageDown) and their releases are ignored instead of being misread as normal keys.
+- **Shell input loop recalls history**: up/down walk the ring buffer with a full line redraw (erase + repaint prompt, pad shorter entries with spaces); Enter runs the recalled command.
+- **`history_add` consecutive-dedup**: re-running a recalled command no longer pushes a duplicate onto the stack (which made up-up land on the duplicate instead of the older command). Empty lines were already skipped.
+
+### Verification
+- Kernel builds clean (0 warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_history.py` 8/8 — up recalls the last command, Enter re-runs it (vcat prints content), up-up walks to the `write`, down returns to `vcat` and re-runs; `drive_vcat.py` regression 53/53.
+
 ## 2026-08-24 — Agent Session: recursive directory copy
 
 ### Context

@@ -1060,6 +1060,17 @@ static int history_count = 0;
 
 static void history_add(const char* cmd) {
     if (!cmd || !*cmd) return;
+    /* Consecutive-dedup: re-running a recalled command must not push a
+     * copy of itself, or up-arrow recall would land on the duplicate. */
+    if (history_count > 0) {
+        const char* last = history[(history_count - 1) % HISTORY_SIZE];
+        int same = 1;
+        for (int i = 0; ; i++) {
+            if (cmd[i] != last[i]) { same = 0; break; }
+            if (cmd[i] == 0) break;
+        }
+        if (same) return;
+    }
     int idx = history_count % HISTORY_SIZE;
     int i = 0;
     while (cmd[i] && i < HISTORY_MAX_LEN - 1) {
@@ -1694,6 +1705,7 @@ void shell_run(void) {
         terminal_writestring("> ");
 
         pos = 0;
+        int hist_pos = history_count;  /* == count means editing fresh input */
         while (1) {
             if (keyboard_has_key()) {
                 char c = keyboard_getc();
@@ -1707,6 +1719,34 @@ void shell_run(void) {
                     terminal_putchar('\b');
                     terminal_putchar(' ');
                     terminal_putchar('\b');
+                } else if ((c == '\x01' || c == '\x02') && history_count > 0) {
+                    /* Up (0x01) / Down (0x02): recall command history.
+                     * Erase the whole line, repaint prompt + entry, and
+                     * pad with spaces when the recalled line is shorter. */
+                    int old_pos = pos;
+                    if (c == '\x01') {
+                        if (hist_pos > 0) hist_pos--;
+                    } else {
+                        if (hist_pos < history_count) hist_pos++;
+                    }
+                    for (int i = 0; i < old_pos + 2; i++) {
+                        terminal_putchar('\b');
+                        terminal_putchar(' ');
+                        terminal_putchar('\b');
+                    }
+                    terminal_writestring("> ");
+                    pos = 0;
+                    if (hist_pos < history_count) {
+                        const char* h = history[hist_pos % HISTORY_SIZE];
+                        while (h[pos] && pos < MAX_CMD_LEN - 1) {
+                            cmd_buffer[pos] = h[pos];
+                            terminal_putchar(h[pos]);
+                            pos++;
+                        }
+                    }
+                    for (int i = pos; i < old_pos; i++) terminal_putchar(' ');
+                    for (int i = pos; i < old_pos; i++) terminal_putchar('\b');
+                    cmd_buffer[pos] = 0;
                 } else if (c >= ' ' && pos < MAX_CMD_LEN - 1) {
                     cmd_buffer[pos++] = c;
                     terminal_putchar(c);
