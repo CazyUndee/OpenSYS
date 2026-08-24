@@ -317,7 +317,29 @@ try:
     ok = w.type_and_wait("delete findtest\n", "Deleted directory: findtest")
     checks.append(("delete findtest", ok, w.tail(120)))
 
-    # 14. cleanup
+    # 14. recursive directory copy: build a small tree, copy it, verify
+    #     the mirror has the same files and contents, then check the
+    #     self-copy refusal.
+    ok = w.type_and_wait("mkdir srcdir\n", "Created directory: srcdir")
+    checks.append(("mkdir srcdir", ok, w.tail(120)))
+    ok = w.type_and_wait("write srcdir/a.txt alpha\n", "bytes to srcdir/a.txt")
+    checks.append(("write srcdir/a.txt", ok, w.tail(120)))
+    ok = w.type_and_wait("mkdir srcdir/sub\n", "Created directory: srcdir/sub")
+    checks.append(("mkdir srcdir/sub", ok, w.tail(120)))
+    ok = w.type_and_wait("write srcdir/sub/b.txt beta\n", "bytes to srcdir/sub/b.txt")
+    checks.append(("write srcdir/sub/b.txt", ok, w.tail(120)))
+    ok = w.type_and_wait("copy srcdir dstdir\n", "Copied directory: /dstdir")
+    out = w.tail(200)
+    ok = ok and "(2 files)" in out
+    checks.append(("copy srcdir -> dstdir", ok, out))
+    ok = w.type_and_wait("vcat dstdir/a.txt\n", "alpha")
+    checks.append(("vcat dstdir/a.txt == alpha", ok, w.tail(120)))
+    ok = w.type_and_wait("vcat dstdir/sub/b.txt\n", "beta")
+    checks.append(("vcat dstdir/sub/b.txt == beta", ok, w.tail(120)))
+    ok = w.type_and_wait("copy srcdir srcdir\n", "into itself")
+    checks.append(("copy srcdir srcdir refused", ok, w.tail(120)))
+
+    # 15. cleanup
     ok = w.type_and_wait("delete vcattest.txt\n", "Deleted: vcattest.txt")
     checks.append(("delete vcattest", ok, w.tail(120)))
     ok = w.type_and_wait("delete longfile.txt\n", "Deleted: longfile.txt")

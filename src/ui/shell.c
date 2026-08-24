@@ -501,6 +501,102 @@ static void cmd_read_file(const char* name) {
     terminal_writestring_nl("");
 }
 
+/* ---- Recursive directory copy ----
+ * `copy <dir> <dst>` mirrors a directory tree: subdirectories are
+ * recreated with fs_mkdir and every file is copied byte-for-byte.
+ * If dst is an existing directory the tree lands inside it under the
+ * source's basename (Unix `cp -r src dst/` semantics); otherwise dst
+ * becomes the copy root. */
+static char copy_dir_src_cur[256];
+static char copy_dir_dst_cur[256];
+static int copy_dir_errors;
+static int copy_dir_file_count;
+static int copy_dir_depth;
+
+static void copy_dir_walk(const char* src, const char* dst, int depth);
+
+static int path_has_prefix(const char* path, const char* prefix) {
+    const char* p = path;
+    const char* q = prefix;
+    while (*q) {
+        if (*p != *q) return 0;
+        p++;
+        q++;
+    }
+    return *p == '/';  /* component boundary, not a bare string prefix */
+}
+
+static const char* path_basename(const char* p) {
+    const char* base = p;
+    for (const char* c = p; *c; c++) {
+        if (*c == '/') base = c + 1;
+    }
+    return base;
+}
+
+static void path_join(char* out, const char* dir, const char* name) {
+    if (k_strcmp(dir, "/") == 0) {
+        k_strcpy(out, "/");
+        k_strcpy(out + 1, name);
+    } else {
+        int n = k_strlen(dir);
+        k_strcpy(out, dir);
+        out[n] = '/';
+        k_strcpy(out + n + 1, name);
+    }
+}
+
+static void copy_dir_callback(const char* name, int is_dir, uint32_t size) {
+    (void)size;
+    char src_child[256];
+    char dst_child[256];
+    path_join(src_child, copy_dir_src_cur, name);
+    path_join(dst_child, copy_dir_dst_cur, name);
+
+    if (is_dir) {
+        int exists = fs_is_directory(dst_child);
+        if (exists != 1 && fs_mkdir(dst_child) != 0) {
+            copy_dir_errors++;
+            return;
+        }
+        copy_dir_walk(src_child, dst_child, copy_dir_depth - 1);
+        return;
+    }
+
+    /* Plain file: open, truncate any existing target, copy bytes. */
+    fs_file_t* sf = fs_open(src_child, 0);
+    if (!sf) { copy_dir_errors++; return; }
+    fs_file_t* df = fs_open(dst_child, 1);
+    if (!df) { fs_close(sf); copy_dir_errors++; return; }
+    fs_truncate(df, 0);
+    char buf[256];
+    size_t total = 0;
+    while (total < sf->size) {
+        size_t to_read = sf->size - total > 256 ? 256 : sf->size - total;
+        size_t r = fs_read(sf, buf, to_read);
+        if (r == 0) break;
+        if (fs_write(df, buf, r) != r) { copy_dir_errors++; break; }
+        total += r;
+    }
+    fs_close(sf);
+    fs_close(df);
+    copy_dir_file_count++;
+}
+
+static void copy_dir_walk(const char* src, const char* dst, int depth) {
+    if (depth <= 0) return;  /* guard against cycles */
+    char src_saved[256];
+    char dst_saved[256];
+    k_strcpy(src_saved, copy_dir_src_cur);
+    k_strcpy(dst_saved, copy_dir_dst_cur);
+    k_strcpy(copy_dir_src_cur, src);
+    k_strcpy(copy_dir_dst_cur, dst);
+    copy_dir_depth = depth;
+    fs_readdir(src, copy_dir_callback);
+    k_strcpy(copy_dir_src_cur, src_saved);
+    k_strcpy(copy_dir_dst_cur, dst_saved);
+}
+
 static void cmd_copy(const char* src, const char* dst) {
     if (!src || !*src || !dst || !*dst) {
         terminal_writestring_nl("  Usage: copy <source> <destination>");
@@ -513,7 +609,43 @@ static void cmd_copy(const char* src, const char* dst) {
         terminal_writestring_nl("  Error: path too long");
         return;
     }
-    
+
+    /* Directory source: mirror the whole tree. */
+    if (fs_is_directory(src_path) == 1) {
+        char dst_root[256];
+        if (fs_is_directory(dst_path) == 1) {
+            path_join(dst_root, dst_path, path_basename(src_path));
+        } else {
+            k_strcpy(dst_root, dst_path);
+        }
+        /* Refuse copying a directory into itself (avoids infinite descent). */
+        if (k_strcmp(dst_root, src_path) == 0 ||
+            path_has_prefix(dst_root, src_path)) {
+            terminal_writestring_nl("  Error: cannot copy a directory into itself");
+            return;
+        }
+        int exists = fs_is_directory(dst_root);
+        if (exists != 1 && fs_mkdir(dst_root) != 0) {
+            terminal_writestring_nl("  Error: could not create destination directory");
+            return;
+        }
+        copy_dir_errors = 0;
+        copy_dir_file_count = 0;
+        copy_dir_walk(src_path, dst_root, 8);
+        if (copy_dir_errors > 0) {
+            terminal_writestring("  Error: ");
+            terminal_put_dec(copy_dir_errors);
+            terminal_writestring_nl(" entries failed during directory copy");
+            return;
+        }
+        terminal_writestring("  Copied directory: ");
+        terminal_writestring(dst_root);
+        terminal_writestring(" (");
+        terminal_put_dec(copy_dir_file_count);
+        terminal_writestring_nl(" files)");
+        return;
+    }
+
     // Open source file
     fs_file_t* src_file = fs_open(src_path, 0);
     if (!src_file) {

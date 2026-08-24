@@ -1,5 +1,21 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-24 — Agent Session: recursive directory copy
+
+### Context
+`copy` only worked on plain files — `copy <dir> <dst>` failed with "Source file not found" because `fs_open` expects a file. Directories had no way to be duplicated.
+
+### Changes
+- **`copy <dir> <dst>` mirrors a directory tree** in shell.c: `copy_dir_walk`/`copy_dir_callback` recurse with `fs_readdir`, recreate subdirectories via `fs_mkdir`, and copy every file byte-for-byte (with `fs_truncate` so a shorter file never leaves stale tail bytes).
+- Unix `cp -r` semantics: if dst is an existing directory, the tree lands inside it under the source's basename; otherwise dst becomes the copy root.
+- Self-copy refusal: copying a directory into itself (or any descendant path) errors out before walking, preventing infinite descent; a depth-8 guard bounds cycles.
+- Path helpers `path_basename`/`path_join`/`path_has_prefix` added (shell has no k_strrchr/k_memcmp).
+
+### Verification
+- Kernel builds clean (0 warnings; only the two known pre-existing linker warnings).
+- Host suite: 148/148 pass.
+- QEMU/WHPX end-to-end: `drive_vcat.py` 53/53 — 4 new checks (mkdir tree → `copy srcdir dstdir` → vcat both mirrored files → self-copy refused).
+
 ## 2026-08-24 — Agent Session: recursive `find` + index-root corruption fix
 
 ### Context
