@@ -139,6 +139,15 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ### Decision: Shared string helpers live in kstring
 **Reason**: `k_strstr`/`k_trim` were privately duplicated in `intent_dispatcher.c` and `ui_command.c`. The canonical implementations are now exported from `kstring.c` (2026-08-25); any new string utility belongs there.
 
+### Decision: Single unified resource namespace with numeric roots (docs/NAMESPACE.md)
+**Reason**: Plan0 addresses everything — local files, devices, partitions, memory, future network resources — through ONE namespace rooted at numeric domains (`0/` = local machine; 1-9 reserved for future domains). Full canonical paths are self-explaining (`0/hardware/storage/ssd/partitions/1`); short aliases (`0/hss`) are pure renames that expand to the same resource before classification. Resolution is table-driven; per-path string compares scattered in kernel code are banned. Legacy `/proc`,`/sys`,`/dev`,`/` paths keep working and become compatibility aliases later. Spec: `docs/NAMESPACE.md` (authoritative).
+
+### Decision: Filesystems mount on `<device>/partitions/<n>` — always, including single-partition devices
+**Reason**: The device and a partition are different resource kinds (block device vs. filesystem-capable range); both hierarchy levels are justified. Uniform addressing removes all "is this device partitioned?" special cases and any nondeterministic mount fallback ("try partitions/1 then bare"). The bare device path stays meaningful for raw I/O and topology introspection. Cost: one extra path component in the common case — accepted deliberately.
+
+### Decision: Logical user storage lives at `0/user/`, separate from hardware paths
+**Reason**: Physical ≠ logical. Applications bind to `0/user/` so relocating user storage (other disk/partition/future network volume) never changes application paths. Device-scoped views (`0/hss/user/`) may exist as secondary conveniences.
+
 ## Planned Changes
 
 ### Near-term
