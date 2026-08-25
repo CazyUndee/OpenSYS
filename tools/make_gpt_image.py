@@ -19,14 +19,10 @@ OUT = os.path.join(os.path.dirname(__file__), "gpt_test.img")
 SECTOR = 512
 TOTAL_SECTORS = 32768  # 16 MiB
 
-# Well-known GUIDs (bytes as stored on disk, mixed-endian per UEFI)
-LINUX_FS = bytes.fromhex("af3dc60f83844737") + bytes.fromhex("8e793d69d8477de4")
-FAT32    = bytes.fromhex("ebc1a29dd051b34b") + bytes.fromhex("8e6a9ac29f411ee5")
-# NOTE: use exact byte sequences matching include/gpt.h constants:
-#   GPT_TYPE_LINUX_FS: AF 3D C6 0F 83 84 72 47 8E 79 3D 69 D8 47 7D E4
+# Well-known type GUIDs as raw 16-byte sequences (byte order exactly as in
+# include/gpt.h so gpt_get_partition's memcmp-style compare matches):
 LINUX_FS = bytes([0xAF,0x3D,0xC6,0x0F,0x83,0x84,0x72,0x47,
                   0x8E,0x79,0x3D,0x69,0xD8,0x47,0x7D,0xE4])
-#   GPT_TYPE_FAT32: E3 AF 2E EB 5D F3 46 47 9D 14 A5 43 51 5C C8 B0
 FAT32 = bytes([0xE3,0xAF,0x2E,0xEB,0x5D,0xF3,0x46,0x47,
                0x9D,0x14,0xA5,0x43,0x51,0x5C,0xC8,0xB0])
 

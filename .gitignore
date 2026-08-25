@@ -35,6 +35,9 @@ Thumbs.db
 *.log
 *.bak
 
+# Python bytecode
+__pycache__/
+
 # Oh-My-OpenCode run-continuation sessions
 .omo/run-continuation/
 
