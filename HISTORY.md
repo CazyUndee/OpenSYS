@@ -1,5 +1,38 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Plan0 namespace architecture (spec + resolver slice)
+
+### Context
+Design directive: Plan0 gets ONE unified resource namespace with numeric domain roots (`0/` = local machine; 1–9 reserved for future domains incl. network), self-explaining canonical paths, optional short aliases resolving to the same resource, and a table-driven resolver — explicitly NOT a renamed Unix clone, and NOT hundreds of scattered string compares. Directive sequence: audit → analyze → specify → test → implement minimally.
+
+### Audit findings (pre-spec)
+- VFS `find_ops`: longest-prefix string match; `/proc`,`/sys`,`/dev` mounts carry NULL ops and are implicitly routed to `vfile_vfs_ops` — dispatch by convention.
+- vfile: flat exact-string registry (~30 Unix-style resources) with hand-written per-dir emitters; dynamic files matched by string prefix.
+- path.c `resolve_path`: prepends `/`; no grammar or resource-root concept (16 shell callers).
+- Storage stack (disk→GPT→part-relative I/O→whole-disk fs.c) had NO path representation anywhere. No aliases, no numeric roots, no introspection.
+
+### Key decisions (full rationale in docs/NAMESPACE.md §6, §7; recorded in STATE.md)
+1. **Filesystems always mount on `<device>/partitions/<n>`** — even single-partition devices. Device vs. partition are different resource kinds (raw block device vs. fs-capable range); uniform addressing eliminates all "is it partitioned?" special cases and nondeterministic mount fallbacks.
+2. **Logical user storage at `0/user/`**, separate from hardware paths, so relocating storage never changes application paths (`0/hss/user/` style stays a secondary device-scoped view).
+3. **Aliases are pure renames expanded BEFORE classification** (`0/hss` → `0/hardware/storage/ssd`) — one implementation, two spellings; backends never see alias strings.
+
+### Changes
+- **`docs/NAMESPACE.md` (NEW)** — authoritative specification: roots, hardware/system/dev/user subtrees, partition convention (+ analysis), grammar (bare digit root valid; dots inside components allowed, all-dot rejected; 256 B / depth 16), resolution pipeline, application access model, discoverability requirements, legacy-path migration mapping (`/proc`→`0/system`, `/sys/kernel`→`0/system/kernel`, `/dev/*`→`0/dev/*`, `/` root→partition volume once fs-on-partition lands), non-goals, slice plan.
+- **`include/ns.h` + `src/fs/ns.c` (NEW)** — the resolver: normalize → alias expansion (component-boundary safe, bounded passes) → split → declarative node walk producing `ns_resource_t {kind, domain, part_index, device, canonical}`. Distinct errors: -1 parse violation vs -2 unknown resource. `ns_describe()` introspection reports canonical form, alias links in BOTH directions, kind, and live backend facts from the existing disk/GPT/partition stack (read-only; e.g. real partition count, per-partition start/size/label). Wired into kernel Makefile. Zero changes to vfs/vfile/fs behavior.
+- **`src/ui/shell.c`** — new `ns <path>` command (help entry added): prints the description through the terminal; invalid syntax vs unknown resource error distinctly.
+- **`tests/unit/test_ns.c` (NEW, 7 tests)** over the existing disk/gpt/pmm mocks: grammar accept/reject (incl. `9/main/index.html` parses, `/proc/...` rejected, `..` traversal banned, bare `0` valid); alias expansion incl. boundary safety (`hsss` not hijacked by `hss`); full-descriptor alias≡canonical equivalence; classification of every kind; structured errors; backend-unavailable reporting (with explicit mock-state reset — suite-order isolation bug found and fixed during development).
+- **`tests/Makefile` / `tests/test_runner.c`** — ns.c into REAL_SRCS, "Namespace Resolver" suite registered.
+- **`tools/drive_ns.py` (NEW)** — serial driver gating on live `ns` behavior.
+
+### Verification
+- Kernel build clean (0 compiler warnings).
+- Host suite: **163/163 pass** (156 previous + 7 namespace tests).
+- QEMU/WHPX end-to-end: `drive_ns.py` **5/5** — `ns 0/hss` shows canonical+kind+alias+backend; canonical path reveals its alias; memory ram reports totals; unknown resource errors cleanly; `/proc/uptime` rejected as syntax error. One transient WHPX boot failure observed (no shell prompt); clean on retry — consistent with previously documented environment flakiness, unrelated to namespace code (no disk involved).
+
+### Results
+- The namespace is now a real, tested module with an authoritative spec — foundational layer for mounting fs on partition volumes under `0/hardware/storage/<dev>/partitions/<n>` next.
+- Next slices (per spec §16/§23): bind `fs_vfs_ops` to a chosen partition volume; legacy-path compatibility aliasing; `ls`/`go to` namespace awareness; `0/user/` binding policy.
+
 ## 2026-08-25 — Agent Session: Partitioned disk I/O (part.c) + ATA IDENTIFY reliability fix
 
 ### Context
