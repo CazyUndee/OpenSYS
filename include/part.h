@@ -45,6 +45,7 @@ typedef struct {
 
 // Core API
 void part_init(void);
+int part_is_ready(void);
 int part_get_info(int partition_num, part_info_t* info);
 int part_list_partitions(part_info_t* partitions, int max_count);
 

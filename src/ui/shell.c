@@ -41,6 +41,8 @@
 #include "icmp.h"
 #include "nl_parser.h"
 #include "vfile.h"
+#include "part.h"
+#include "disk.h"
 #include "version.h"
 
 #define MAX_CMD_LEN 256
@@ -321,6 +323,40 @@ static void cmd_ps(void) {
     terminal_writestring("\n  ");
     terminal_put_dec(count);
     terminal_writestring_nl(" processes total");
+    terminal_writestring_nl("");
+}
+
+/* ---- partitions: show partitions / parts ----
+ * Lists used GPT partition table entries (index, start LBA, size, label).
+ * Requires a disk with a GPT; part_init parses the table at boot. */
+static void cmd_parts(void) {
+    terminal_writestring_nl("");
+    if (!disk_is_ready()) {
+        terminal_writestring_nl("  No disk present");
+        return;
+    }
+    if (!part_is_ready()) {
+        terminal_writestring_nl("  No GPT partition table");
+        return;
+    }
+    part_info_t parts[32];
+    int count = part_list_partitions(parts, 32);
+    if (count <= 0) {
+        terminal_writestring_nl("  (no partitions)");
+        return;
+    }
+    terminal_writestring_nl("  #   Start LBA      Size (KB)  Label");
+    terminal_writestring_nl("  --  -------------  ---------  -----");
+    for (int i = 0; i < count; i++) {
+        terminal_writestring("  ");
+        terminal_put_dec(parts[i].partition_number);
+        terminal_writestring("    ");
+        terminal_put_dec(parts[i].start_lba);
+        terminal_writestring("          ");
+        terminal_put_dec(parts[i].size_sectors / 2);  /* 512B sectors -> KB */
+        terminal_writestring("          ");
+        terminal_writestring_nl(parts[i].label);
+    }
     terminal_writestring_nl("");
 }
 
@@ -1202,6 +1238,7 @@ terminal_writestring_nl(" ping <addr> - ping an address");
     terminal_writestring_nl("    mount             - show mounted filesystems");
     terminal_writestring_nl("    df                - disk free (filesystem usage)");
     terminal_writestring_nl("    ps                - list processes (alias for show processes)");
+    terminal_writestring_nl("    parts             - list GPT partitions");
     terminal_writestring_nl("    reboot            - reboot the system");
     terminal_writestring_nl("    shutdown          - shutdown the system");
     terminal_writestring_nl("    whoami            - show current user");
@@ -1581,6 +1618,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     else if (cmd_equals(cmd, "show") && k_strcmp(arg1, "processes") == 0) {
         cmd_ps();
     }
+    else if (cmd_equals(cmd, "show") && k_strcmp(arg1, "partitions") == 0) {
+        cmd_parts();
+    }
     else if (cmd_equals(cmd, "show") && k_strcmp(arg1, "memory") == 0) {
         cmd_show_memory();
     }
@@ -1723,6 +1763,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "ps")) {
         cmd_ps();
+    }
+    else if (cmd_equals(cmd, "parts")) {
+        cmd_parts();
     }
     else if (cmd_equals(cmd, "pipe")) {
         cmd_pipe();

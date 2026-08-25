@@ -34,6 +34,7 @@
 #include "tss.h"
 #include "interrupts.h"
 #include "disk.h"
+#include "part.h"
 #include "scheduler.h"
 #include "process.h"
 #include "fs.h"
@@ -142,6 +143,8 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 		terminal_writestring(" ATA disk init FAILED (no disk?)\n");
 	} else {
 		terminal_writestring(" ATA disk ready\n");
+		/* Parse the GPT partition table (part_init no-ops without a GPT) */
+		part_init();
 	}
 
 	terminal_writestring("[INIT] Filesystem...\n");

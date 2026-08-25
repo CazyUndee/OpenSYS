@@ -372,6 +372,89 @@ int fs_readdir(const char* path, void (*callback)(const char*, int, uint32_t)) {
     return 0;
 }
 
+/* ---- Disk / GPT mocks (test-configured) ----
+ *
+ * part.c is compiled as REAL source; its disk_* and gpt_* dependencies
+ * resolve here. Tests configure the disk-ready flag, the GPT entry table,
+ * and inspect the exact (lba, count) that reached the disk driver.
+ */
+
+#include "../../include/disk.h"
+#include "../../include/gpt.h"
+
+static int mock_disk_ready = 0;
+static uint64_t mock_last_lba = 0;
+static uint32_t mock_last_count = 0;
+static int mock_last_is_write = 0;
+static int mock_io_calls = 0;
+
+#define MOCK_GPT_MAX_PARTS 16
+
+static gpt_entry_t mock_gpt_table[MOCK_GPT_MAX_PARTS];
+static uint32_t mock_gpt_total = 0;
+
+void mock_disk_set_ready(int ready) { mock_disk_ready = ready; }
+
+void mock_disk_io_reset(void) {
+    mock_io_calls = 0;
+    mock_last_lba = 0;
+    mock_last_count = 0;
+    mock_last_is_write = 0;
+}
+
+void mock_disk_last_io(uint64_t* lba, uint32_t* count, int* is_write, int* calls) {
+    if (lba) *lba = mock_last_lba;
+    if (count) *count = mock_last_count;
+    if (is_write) *is_write = mock_last_is_write;
+    if (calls) *calls = mock_io_calls;
+}
+
+void mock_gpt_setup(const gpt_entry_t* entries, uint32_t count) {
+    memset(mock_gpt_table, 0, sizeof(mock_gpt_table));
+    if (count > MOCK_GPT_MAX_PARTS) count = MOCK_GPT_MAX_PARTS;
+    mock_gpt_total = count;
+    for (uint32_t i = 0; i < count; i++) mock_gpt_table[i] = entries[i];
+}
+
+int disk_init(void) { return mock_disk_ready ? 0 : -1; }
+int disk_is_ready(void) { return mock_disk_ready; }
+uint64_t disk_get_size(void) { return mock_disk_ready ? 64ULL * 1024 * 1024 : 0; }
+
+int disk_read(uint32_t lba, uint32_t count, void* buffer) {
+    if (!mock_disk_ready || !buffer || count == 0) return -1;
+    mock_last_lba = lba;
+    mock_last_count = count;
+    mock_last_is_write = 0;
+    mock_io_calls++;
+    return 0;
+}
+
+int disk_write(uint32_t lba, uint32_t count, const void* buffer) {
+    if (!mock_disk_ready || !buffer || count == 0) return -1;
+    mock_last_lba = lba;
+    mock_last_count = count;
+    mock_last_is_write = 1;
+    mock_io_calls++;
+    return 0;
+}
+
+static disk_info_t mock_disk_identity = { 0 };
+const disk_info_t* disk_get_info(void) {
+    if (!mock_disk_ready) return 0;
+    return &mock_disk_identity;
+}
+
+int gpt_init(disk_ops_t* ops) { (void)ops; return mock_gpt_total > 0 ? 0 : -1; }
+int gpt_list_partitions(void) { return (int)mock_gpt_total; }
+
+const gpt_entry_t* gpt_get_partition(uint32_t index) {
+    if (index >= mock_gpt_total) return 0;
+    gpt_entry_t* e = &mock_gpt_table[index];
+    uint8_t zero[16] = {0};
+    if (memcmp(e->type_guid, zero, 16) == 0) return 0;  /* unused slot */
+    return e;
+}
+
 /* ---- VGA / terminal mock ---- */
 
 void terminal_putchar(char c) { (void)c; }
