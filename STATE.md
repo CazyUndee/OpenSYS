@@ -130,9 +130,20 @@ Phase 9: Stability & Testing (FUNCTIONAL)
 ### Decision: Host-side test suite uses mock kernel functions
 **Reason**: Kernel functions like `kmalloc`, `pmm_get_total`, `memory_get_stats` cannot run on the host. The test suite includes `tests/mocks/mock_kernel.c` which provides stub implementations using host `malloc`/`free`. Tests validate structure layouts and constants, not runtime kernel behavior.
 
+### Decision: `pmm_*` is the only physical-memory allocator API
+**Reason**: `memory_init`/`memory_alloc_page`/etc. were a wrapper stack around the real `pmm_*` functions, producing two names for one allocator. The wrappers were removed (2026-08-25); callers use `pmm_*` directly and `include/memory.h` now only carries stats/libc-future declarations.
+
+### Decision: File/directory/how-much-counts intents live in the shell, not the intent schema
+**Reason**: The 500-series file intents (create/delete/read/write/list) had schemas but no dispatcher handlers; the shell performs these operations directly. The dead schemas and enum entries were removed (2026-08-25), along with `cmd_list_processes`/`cmd_show_system_info` which duplicated the shell `ps`/`system` commands.
+
+### Decision: Shared string helpers live in kstring
+**Reason**: `k_strstr`/`k_trim` were privately duplicated in `intent_dispatcher.c` and `ui_command.c`. The canonical implementations are now exported from `kstring.c` (2026-08-25); any new string utility belongs there.
+
 ## Planned Changes
 
 ### Near-term
+- ~~`wc` command~~ DONE — `wc <file>` prints Unix-style line/word/byte counts for real and virtual files (chunked read like cat, 4 KiB cap); verified under QEMU/WHPX (2026-08-25)
+- ~~Repo hygiene: land in-flight infrastructure~~ DONE — BSS/page-table zeroing, TSS descriptor base[63:48], serial panic mirror, context-switch/IRQ-offset fixes, process entry args, pmm_* canonicalization, io.h consolidation, hosted-safe stddef.h, longjmp test framework, kstring dedup, dead file-intent schema removal, and 16 previously-untracked QEMU tooling scripts were all sitting uncommitted despite being recorded in HISTORY; committed atomically (2026-08-25). Also fixed: `nl_parser.h`/`path.h`/`path.c`/`version.h` were untracked while committed sources included them — clean checkouts could not build.
 - ~~`cat` streams beyond 255 bytes~~ DONE — `read`/`cat` now print the whole file in chunks instead of silently truncating at 255 bytes; verified under QEMU/WHPX 70/70 (2026-08-24)
 - ~~`grep` command + NL-parser hijack fix~~ DONE — `grep <pat> <file>` searches real and virtual files (line numbers, 4 KiB cap); nl_parser now only claims phrases whose verb is at the start (after fillers), so mid-command verb tokens like "grep Uptime /proc/uptime" no longer hijack into `uptime`; 3 new host assertions; verified under QEMU/WHPX 65/65 (2026-08-24)
 - ~~Read-only markers in `ls`~~ DONE — listings mark protected files `[RO]` (full-path resolution in list_callback via list_cur_dir); virtual entries unaffected; verified under QEMU/WHPX 56/56 (2026-08-24)

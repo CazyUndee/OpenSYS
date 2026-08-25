@@ -1,5 +1,34 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Land previously-uncommitted infrastructure + `wc` command
+
+### Context
+The working tree carried 39 modified and 21 untracked files from earlier sessions that had been recorded in HISTORY/STATE but never committed (the granular per-feature commits only staged their own files, stranding everything else). Among them: build-critical untracked sources, so `git clone` + `make all` could not have worked. This session characterized every diff, verified the unified tree, and committed atomically. One new feature (`wc`) was found finished but unrecorded in the tree.
+
+### Changes (commit order)
+
+1. **`8e29be5` Track nl_parser/path/version sources required by the build** — `include/nl_parser.h`, `include/path.h`, `include/version.h`, `src/fs/path.c` were untracked while committed sources included them; a clean checkout could not build.
+2. **`7d6f76f` Track failed assertions via longjmp; make stddef.h hosted-safe** — ASSERT used to `return`, so the runner counted failures as passes; it now `longjmp`s to the runner which marks the test failed. stddef.h uses `#include_next <stddef.h>` when hosted. Also fixed `cpu_context_t` size expectation (144 → 160) and printf/cast mismatches in the integration suite.
+3. **`528297a` Zero BSS and boot page tables; harden context switch and IRQ stubs** — BSS was never zeroed (multiboot `bss_end_addr = 0`; raw-loaded ELF debug sections overwrote it) so every static started as garbage; boot page tables are now zeroed before population. `context_switch` hardcodes CS=0x08/SS=0x10 (reading CS from the stack was garbage — 64-bit CALL pushes only RIP). The IRQ stub read the IRQ number from the wrong stack offset (the dummy error code, always 0). `.note.GNU-stack` added to asm files missing it.
+4. **`b63433f` Fix TSS descriptor, mirror panics to serial, wire process entry args** — GDT TSS descriptor now stores base[63:48] (previously truncated → non-canonical base → `ltr` #GP). `panic()` mirrors the full register dump to COM1. `irq_handler` feeds `/proc/interrupts` via `vfile_irq_tick`. `process_create` passes entry/arg via rdi/rsi for `process_wrapper`. `switch_timer_tick` sends EOI before the context-switch iretq and forces a schedule when nothing is current.
+5. **`39f0c96` Canonicalize pmm_* as the only PMM API; never free kernel-resident pages** — the `memory_*` wrapper layer removed; callers use `pmm_*` directly. `pmm_free_range` now refuses to free pages below the kernel-resident bitmap region, so boot-time memory-map freeing can never hand out pages overlapping the running kernel.
+6. **`6da6b55` Route pic/timer/serial I/O ports through io.h** — removed three private `outb`/`inb` copies.
+7. **`fab90b9` Driver cleanup** — `disk_is_ready()`, `input_init` returns whether any keyboard backend attached, `part.c` unused-parameter casts, `usb_host.c` drops two unused descriptor-buffer declarations.
+8. **`d329d24` Share k_strstr/k_trim from kstring; drop dead file intents and duplicate UI info commands** — canonical `k_strstr`/`k_trim` exported from kstring; the private copies in `intent_dispatcher.c`/`ui_command.c` removed. The 500-series file intents (schema-only, no handlers) and `cmd_list_processes`/`cmd_show_system_info` (duplicates of shell `ps`/`system`) removed.
+9. **`cff9651` Add wc command for line/word/byte counts** — `wc <file>` (Unix-style counts, virtual files first, chunked real-file reads, 4 KiB cap); two new drive_vcat end-to-end checks.
+10. **`1ef60ef` Add QEMU/serial debug and shell-drive tooling** — 16 previously-untracked scripts (monitor-state dumpers, serial shell drivers, environment probes).
+11. **`d3e1c88` Add AGENTS.md operating guide** — the repo's own AGENTS.md was untracked.
+
+### Verification
+- Kernel build: clean (0 compiler warnings; only the two known pre-existing linker notes).
+- Host suite: **148/148 pass** from a clean build.
+- QEMU/WHPX end-to-end: `drive_vcat.py` — full battery green on clean runs (70/70 with the two new `wc` checks). Environment note: the serial drive scripts intermittently lose individual keystrokes under WHPX (e.g. `delete` arrives as `deee`); failing checks always re-pass on rerun, and each failed tail shows the garbled echo — kernel output is correct, the input driver on the host side drops bytes. Any check failure whose tail shows a correctly-typed command should be treated as a real regression.
+
+### Results
+- Repository now builds from a clean checkout for the first time since `path.c`/`nl_parser.h`/`version.h` were introduced.
+- All recorded work is now actually in git history; tree clean except agent bookkeeping (`.omo/`, `agent/`, `.freebuff/`).
+- STATE.md gained four decisions: pmm_*-only allocator API, shell-owns-file-ops (not intent schemas), shared kstring helpers, and the repo-hygiene landing.
+
 ## 2026-08-24 — Agent Session: `cat` streams files beyond 255 bytes
 
 ### Context
