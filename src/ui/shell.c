@@ -357,6 +357,22 @@ static void cmd_parts(void) {
         terminal_writestring("          ");
         terminal_writestring_nl(parts[i].label);
     }
+
+    /* Probe-read the first sector of every partition through the
+     * partition-relative I/O path so the translation is exercised
+     * against real hardware, not just listed. */
+    static uint8_t probe[512];
+    for (int i = 0; i < count; i++) {
+        if (part_read_sectors(parts[i].partition_number, 0, probe, 1) == 0) {
+            terminal_writestring("  read p");
+            terminal_put_dec(parts[i].partition_number);
+            terminal_writestring_nl(" sector 0: ok");
+        } else {
+            terminal_writestring("  read p");
+            terminal_put_dec(parts[i].partition_number);
+            terminal_writestring_nl(" sector 0: FAILED");
+        }
+    }
     terminal_writestring_nl("");
 }
 
