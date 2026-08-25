@@ -184,6 +184,10 @@ int fs_format(uint64_t disk_size);
 /* Mount filesystem */
 int fs_mount(void);
 
+/* Volume binding lives in volume.h (volume_use_partition et al.):
+ * when a partition volume is bound, ALL fs block I/O is relative to
+ * the partition start and format size is clamped to the volume. */
+
 /* File operations */
 fs_file_t* fs_open(const char* path, int mode);
 int fs_close(fs_file_t* file);

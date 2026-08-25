@@ -9,6 +9,7 @@
 #include "fs.h"
 #include "kheap.h"
 #include "disk.h"
+#include "volume.h"
 
 /* Filesystem state */
 static fs_boot_sector_t* boot_sector = 0;
@@ -79,13 +80,13 @@ static uint64_t get_time(void) {
 
 /* Helper: read cluster */
 static int read_cluster(uint64_t cluster, void* buffer) {
-    uint64_t lba = cluster * FS_SECTORS_PER_CLUSTER + boot_sector->data_start;
+    uint64_t lba = volume_base_lba() + cluster * FS_SECTORS_PER_CLUSTER + boot_sector->data_start;
     return disk_read((uint32_t)lba, FS_SECTORS_PER_CLUSTER, buffer);
 }
 
 /* Helper: write cluster */
 static int write_cluster(uint64_t cluster, const void* buffer) {
-    uint64_t lba = cluster * FS_SECTORS_PER_CLUSTER + boot_sector->data_start;
+    uint64_t lba = volume_base_lba() + cluster * FS_SECTORS_PER_CLUSTER + boot_sector->data_start;
     return disk_write((uint32_t)lba, FS_SECTORS_PER_CLUSTER, buffer);
 }
 
@@ -314,6 +315,13 @@ static void add_filename_attr(mft_header_t* entry, const char* name, uint64_t pa
 
 /* Format filesystem */
 int fs_format(uint64_t disk_size) {
+    /* A bound volume caps the filesystem size — the fs must never span
+     * past the partition into neighboring volumes. */
+    if (volume_sectors() > 0) {
+        uint64_t volume_bytes = volume_sectors() * FS_SECTOR_SIZE;
+        if (disk_size > volume_bytes) disk_size = volume_bytes;
+    }
+
     /* Allocate boot sector */
     boot_sector = (fs_boot_sector_t*)kmalloc(FS_SECTOR_SIZE);
     if (!boot_sector) return -1;
@@ -353,8 +361,9 @@ int fs_format(uint64_t disk_size) {
     
     /* Write to disk only if disk is present */
     if (disk_is_ready()) {
-        /* Write boot sector */
-        disk_write(0, 1, boot_sector);
+        /* Write boot sector at the volume base (partition start when a
+         * partition volume is bound; LBA 0 on a whole disk) */
+        disk_write((uint32_t)volume_base_lba(), 1, boot_sector);
 
         /* Write MFT */
         for (uint64_t i = 0; i < boot_sector->mft_size; i++) {
@@ -369,8 +378,8 @@ int fs_format(uint64_t disk_size) {
 int fs_mount(void) {
     boot_sector = (fs_boot_sector_t*)kmalloc(FS_SECTOR_SIZE);
     if (!boot_sector) return -1;
-    
-    if (disk_read(0, 1, boot_sector) < 0) return -1;
+
+    if (disk_read((uint32_t)volume_base_lba(), 1, boot_sector) < 0) return -1;
     if (boot_sector->magic != FS_MAGIC) return -1;
     
     /* Load MFT */
