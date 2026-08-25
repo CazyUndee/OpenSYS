@@ -35,6 +35,7 @@
 #include "interrupts.h"
 #include "disk.h"
 #include "part.h"
+#include "volume.h"
 #include "scheduler.h"
 #include "process.h"
 #include "fs.h"
@@ -148,6 +149,13 @@ void kernel_main(uint64_t magic, uint64_t mbi) {
 	}
 
 	terminal_writestring("[INIT] Filesystem...\n");
+	/* Namespace storage volumes (docs/NAMESPACE.md): with a GPT present,
+	 * the filesystem binds to partition 1 so it lives INSIDE the volume
+	 * instead of over LBA 0. Without a disk/GPT the legacy in-memory
+	 * path applies unchanged. */
+	if (part_is_ready() && volume_use_partition(1) == 0) {
+		terminal_writestring(" FS volume: storage partitions/1\n");
+	}
 	if (fs_mount() < 0) {
 		terminal_writestring(" No filesystem found, formatting...\n");
 		if (fs_format(100 * 1024 * 1024) < 0) {
