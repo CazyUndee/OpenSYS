@@ -3,6 +3,7 @@
  */
 
 #include <stdint.h>
+#include "vfile.h"
 
 static volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
 static int px = 0;
@@ -101,21 +102,70 @@ static void panic_put_dec(uint64_t n) {
     while (buf[i]) panic_putch(buf[i++]);
 }
 
+static void serial_panic_putc(char c) {
+    __asm__ volatile ("out %%al, %%dx" : : "a"((uint8_t)c), "d"((uint16_t)0x3F8));
+}
+
+static void serial_panic_puts(const char* s) {
+    while (*s) serial_panic_putc(*s++);
+}
+
+static void serial_panic_put_hex(uint64_t n) {
+    const char hex[] = "0123456789ABCDEF";
+    serial_panic_puts("0x");
+    int started = 0;
+    for (int i = 60; i >= 0; i -= 4) {
+        int digit = (n >> i) & 0xF;
+        if (digit || started || i == 0) {
+            serial_panic_putc(hex[digit]);
+            started = 1;
+        }
+    }
+}
+
+static void serial_panic_put_dec(uint64_t n) {
+    if (n == 0) { serial_panic_putc('0'); return; }
+    char buf[24];
+    int i = 23;
+    while (n > 0) { buf[--i] = '0' + (n % 10); n /= 10; }
+    while (buf[i]) serial_panic_putc(buf[i++]);
+}
+
 static void panic(const char* msg, interrupt_frame_t* frame) {
     for (int i = 0; i < 80 * 25; i++) vga[i] = 0x4F20;
     px = 0; py = 0;
+
+    /* Mirror the panic to serial so headless QEMU runs (-display none) can see it */
+    serial_panic_puts("\n!!! KERNEL PANIC !!!\n");
+    serial_panic_puts(msg);
+    serial_panic_puts("\n");
 
     panic_puts("\n!!! KERNEL PANIC !!!\n\n");
     panic_puts(msg);
     panic_puts("\n\n");
 
     if (frame->int_no < 32) {
+        serial_panic_puts("Exception: ");
+        serial_panic_puts(exception_names[frame->int_no]);
+        serial_panic_puts(" (#");
+        serial_panic_put_dec(frame->int_no);
+        serial_panic_puts(")\n");
+
         panic_puts("Exception: ");
         panic_puts(exception_names[frame->int_no]);
         panic_puts(" (#");
         panic_put_dec(frame->int_no);
         panic_puts(")\n\n");
     }
+
+    serial_panic_puts("RIP:    "); serial_panic_put_hex(frame->rip);
+    serial_panic_puts("\nRSP:    "); serial_panic_put_hex(frame->rsp);
+    serial_panic_puts("\nRFLAGS: "); serial_panic_put_hex(frame->rflags);
+    serial_panic_puts("\nCS: "); serial_panic_put_hex(frame->cs);
+    serial_panic_puts("  SS: "); serial_panic_put_hex(frame->ss);
+    serial_panic_puts("  ERR: "); serial_panic_put_hex(frame->err_code);
+    serial_panic_puts("  INT: "); serial_panic_put_dec(frame->int_no);
+    serial_panic_puts("\n");
 
     panic_puts("RIP:    "); panic_put_hex(frame->rip);
     panic_puts("\nRSP:    "); panic_put_hex(frame->rsp);
@@ -127,6 +177,12 @@ static void panic(const char* msg, interrupt_frame_t* frame) {
     if (frame->int_no == 14) {
         uint64_t cr2;
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        serial_panic_puts("Error Code: ");
+        serial_panic_put_hex(frame->err_code);
+        serial_panic_puts("\nFault Address: ");
+        serial_panic_put_hex(cr2);
+        serial_panic_puts("\n");
+
         panic_puts("Error Code: ");
         panic_put_hex(frame->err_code);
         panic_puts("\nFault Address: ");
@@ -201,7 +257,10 @@ void isr_handler(void* frame_ptr) {
 void irq_handler(void* frame_ptr) {
     interrupt_frame_t* frame = (interrupt_frame_t*)frame_ptr;
     uint64_t irq = frame->int_no - 32;
-    
+
+    /* Count this IRQ for /proc/interrupts */
+    if (irq < 16) vfile_irq_tick((int)irq);
+
     switch (irq) {
         case 2: break; /* Cascade */
         case 3: case 4: break; /* Serial */

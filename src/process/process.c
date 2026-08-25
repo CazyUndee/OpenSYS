@@ -13,6 +13,7 @@
 #include "elf.h"
 #include "tss.h"
 #include "vfs.h"
+#include "kstring.h"
 
 #define STACK_SIZE 16384  /* 16KB stacks */
 
@@ -143,6 +144,8 @@ pid_t process_create(const char* name, process_entry_t entry, void* arg) {
     proc->context.cs = 0x08;
     proc->context.ss = 0x10;
     proc->context.rflags = 0x202;
+    proc->context.rdi = (uint64_t)entry;  /* process_wrapper reads entry from here */
+    proc->context.rsi = (uint64_t)arg;    /* process_wrapper reads arg from here */
 
     /* Use kernel address space */
     proc->vm = 0;

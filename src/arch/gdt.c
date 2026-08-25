@@ -23,7 +23,9 @@ static struct gdt_entry gdt[8];
 static struct gdt_ptr gdtr;
 
 void gdt64_init(void) {
-uint64_t tss_addr = (uint64_t)&tss;
+/* `tss` is a pointer to the heap-allocated TSS.  Use the TSS itself,
+ * not the address of the pointer variable. */
+uint64_t tss_addr = tss ? (uint64_t)tss : 0;
 uint32_t tss_limit = tss_size() - 1;
 
 gdt[0].limit_low = 0; gdt[0].base_low = 0; gdt[0].base_middle = 0;
@@ -48,8 +50,8 @@ gdt[5].access = 0x89;
 gdt[5].granularity = 0x00;
 gdt[5].base_high = (tss_addr >> 24) & 0xFF;
 
-gdt[6].limit_low = (tss_addr >> 32) & 0xFFFF;
-gdt[6].base_low = 0;
+gdt[6].limit_low = (tss_addr >> 32) & 0xFFFF;   /* base[47:32] */
+gdt[6].base_low = (tss_addr >> 48) & 0xFFFF;    /* base[63:48] — upper half of the high dword */
 gdt[6].base_middle = 0;
 gdt[6].access = 0;
 gdt[6].granularity = 0;

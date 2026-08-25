@@ -68,13 +68,67 @@ void switch_schedule(void) {
     context_switch(&current->context, &next->context);
 }
 
-/* Called from timer interrupt */
+/* Called from timer interrupt — performs preemptive context switch.
+ *
+ * When this function is called, the CPU has already pushed an interrupt
+ * frame (RIP/CS/RFLAGS/[RSP/SS]) onto the current process's kernel stack,
+ * and the ISR stub has pushed all general-purpose registers.
+ *
+ * The stack pointer at function entry points at the start of the interrupt
+ * frame. We save it into the old process's context, then use the assembly
+ * context_switch to swap to the new process's saved stack.
+ */
 void switch_timer_tick(void) {
     scheduler_tick();
     
-    if (scheduler_needs_reschedule()) {
-        switch_schedule();
+    process_t* current = process_current();
+    
+    /* If no current process but there are runnable ones, force a schedule. */
+    if (!current && scheduler_runnable_count() > 0) {
+        scheduler_reschedule();
     }
+    
+    if (!scheduler_needs_reschedule()) return;
+    
+    process_t* next = scheduler_pick();
+    
+    if (!next) {
+        scheduler_clear_reschedule();
+        return;
+    }
+    
+    /* Send EOI to the PIC BEFORE calling context_switch.  The assembly
+     * context_switch performs its own iretq which replaces the ISR's
+     * normal return path.  If we don't send EOI here, the PIC's
+     * In-Service Register bit stays set and blocks ALL future timer
+     * interrupts, hanging the system. */
+    __asm__ volatile ("outb %0, $0x20" : : "a"((uint8_t)0x20));
+    
+    /* No current process — just switch directly */
+    if (!current) {
+        scheduler_set_current(next);
+        scheduler_clear_reschedule();
+        context_switch(0, &next->context);
+        return;
+    }
+    
+    /* Save current RSP into context. At this point, RSP points at the
+     * interrupt frame (RIP/CS/RFLAGS) that the CPU pushed for IRQ0.
+     * The assembly context_switch will save all GP registers at this RSP
+     * and restore from the new process's context.rsp. */
+    uint64_t saved_rsp;
+    __asm__ volatile ("mov %%rsp, %[sp]" : [sp] "=r" (saved_rsp));
+    current->context.rsp = saved_rsp;
+    
+    current->state = PROC_STATE_READY;
+    scheduler_add(current);
+    
+    scheduler_set_current(next);
+    scheduler_clear_reschedule();
+    
+    /* context_switch will restore next->context.rsp into RSP,
+     * then use iretq to resume the new process at its saved RIP. */
+    context_switch(&current->context, &next->context);
 }
 
 /* ===== PCID (Process-Context ID) Support ===== */
