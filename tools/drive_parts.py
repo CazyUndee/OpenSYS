@@ -173,6 +173,20 @@ try:
                 and "read p1 sector 0: ok" in out)
     checks.append(("partition-relative probe reads", probe_ok, w.tail(300)))
 
+    # ---- Namespace shell syntax: file ops through 0/... paths ----
+    # The bound volume is partitions/1; the QEMU disk is HDD-class, so
+    # the volume is addressable as 0/hsh/partitions/1 and (logically)
+    # as 0/user/.
+    ok = w.type_and_wait("write hello ns to 0/hsh/partitions/1/nsfile.txt\n",
+                         "bytes to", timeout=25)
+    checks.append(("write via namespace path", ok, w.tail(300)))
+
+    ok = w.type_and_wait("cat 0/user/nsfile.txt\n", "hello ns", timeout=20)
+    checks.append(("read via 0/user alias", ok, w.tail(300)))
+
+    ok = w.type_and_wait("cat /nsfile.txt\n", "hello ns", timeout=20)
+    checks.append(("legacy path reads the same resource", ok, w.tail(300)))
+
     # Regression: shell file tooling still works on the GPT-disk boot.
     ok = w.type_and_wait("wc /proc/uptime\n", "lines,", timeout=20)
     checks.append(("wc /proc/uptime regression", ok, w.tail(200)))

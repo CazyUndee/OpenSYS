@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Sanity-drive the Plan0 namespace introspection (`ns` command) over serial.
-No disk attached: storage resources report 'backend: none attached', which
-is itself part of what we verify."""
+"""Drive Plan 0 namespace introspection (`ns` command) over serial.
+Boots WITH the synthetic GPT image attached (tools/make_gpt_image.py)
+so storage resources exist; the QEMU disk reports as HDD-class, so the
+ssd class must truthfully answer 'Unknown resource'."""
 import subprocess, time, socket, sys, os
 
 def _qemu_path():
@@ -17,8 +18,12 @@ def _qemu_path():
 QEMU = _qemu_path()
 HERE = os.path.dirname(os.path.abspath(__file__))
 KERNEL = os.path.join(HERE, "..", "bin", "kernel0.bin")
+IMAGE = os.path.join(HERE, "gpt_test.img")
 LOG = os.path.join(HERE, "ns_serial.log")
 PORT = 4453
+
+# Regenerate the disposable GPT image before each run.
+import make_gpt_image  # noqa: E402  (runs the generator on import)
 
 try:
     with open(LOG, 'w'):
@@ -32,6 +37,7 @@ proc = subprocess.Popen([
     "-display", "none",
     "-serial", "file:" + LOG,
     "-monitor", f"tcp:127.0.0.1:{PORT},server,nowait",
+    "-drive", f"file={IMAGE},if=ide,format=raw,index=0",
     "-m", "128",
     "-no-reboot", "-no-shutdown",
 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -70,6 +76,16 @@ class LogWatcher:
     def __init__(self):
         self.pos = len(read_log())
 
+    def wait_for(self, needle, timeout=30):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            buf = read_log()
+            if needle in buf[self.pos:]:
+                self.pos = len(buf)
+                return True
+            time.sleep(0.4)
+        return False
+
     def wait_for_echo(self, text, timeout=12):
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -104,17 +120,22 @@ try:
     time.sleep(14)
     w = LogWatcher()
     if "> " not in read_log():
-        print("FAIL: shell prompt never appeared")
-        sys.exit(1)
+        if not w.wait_for("> ", timeout=150):
+            print("FAIL: shell prompt never appeared")
+            sys.exit(1)
     print("OK: shell prompt reached")
     checks = []
 
-    ok = w.type_and_wait("ns 0/hss\n", "path: 0/hardware/storage/ssd")
+    ok = w.type_and_wait("ns 0/hsh\n", "path: 0/hardware/storage/hdd")
     out = w.tail(400)
-    ok = ok and "storage device" in out and "alias: 0/hss" in out
-    checks.append(("ns 0/hss describes canonical+kind+alias", ok, out))
+    ok = ok and "storage device" in out and "alias: 0/hsh" in out
+    checks.append(("ns 0/hsh describes canonical+kind+alias", ok, out))
 
-    ok = w.type_and_wait("ns 0/hardware/storage/ssd\n", "alias: 0/hss")
+    # Topology honesty: the QEMU disk is HDD-class; ssd must not exist.
+    ok = w.type_and_wait("ns 0/hss\n", "Unknown resource")
+    checks.append(("absent device class (ssd) is unknown", ok, w.tail(300)))
+
+    ok = w.type_and_wait("ns 0/hardware/storage/hdd\n", "alias: 0/hsh")
     checks.append(("canonical path reveals its alias", ok, w.tail(400)))
 
     ok = w.type_and_wait("ns 0/hardware/memory/ram\n", "system memory")

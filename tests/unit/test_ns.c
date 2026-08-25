@@ -4,24 +4,46 @@
  * Copyright (C) 2026 CazyUndee
  * SPDX-License-Identifier: AGPL-3.0
  *
- * Compiles the real ns.c (resolver) against mocked disk/gpt/part and PMM
- * functions, validating: path grammar, alias-to-canonical equivalence,
- * resource classification, partition index rules, and structured errors.
+ * Compiles the real ns.c (resolver + shell-argument translation) against
+ * mocked disk/gpt/part and PMM functions, validating: path grammar,
+ * alias-to-canonical equivalence, truthful storage topology (a device
+ * class exists only when detected hardware belongs to it), partition
+ * volume translation, and structured errors.
  */
 
 #include <string.h>
 #include "../test_framework.h"
 #include "../../include/ns.h"
+#include "../../include/volume.h"
+#include "../../include/gpt.h"
 
 /* Mock control hooks (tests/mocks/mock_kernel.c) */
 void mock_disk_set_ready(int ready);
 void mock_gpt_setup(const void* entries, unsigned count);
+void mock_disk_set_ssd(int ssd);
 
 /* Suite-order independence: other suites leave part.c marked ready via
  * shared static state; reset it explicitly before asserting on it. */
 void part_init(void);
 
-/* --- helpers ------------------------------------------------------- */
+/* Two used GPT slots on the default HDD-class device: p1 @2048-4095,
+ * p2 @4096-8191. */
+static void setup_two_partitions_for_ns(void) {
+    gpt_entry_t t[2];
+    memset(t, 0, sizeof(t));
+    memcpy(t[0].type_guid, GPT_TYPE_LINUX_FS, 16);
+    t[0].start_lba = 2048;
+    t[0].end_lba   = 4095;
+    memcpy(t[1].type_guid, GPT_TYPE_LINUX_FS, 16);
+    t[1].start_lba = 4096;
+    t[1].end_lba   = 8191;
+    mock_disk_set_ssd(0);
+    mock_disk_set_ready(1);
+    mock_gpt_setup(t, 2);
+    part_init();
+}
+
+/* --- grammar ------------------------------------------------------- */
 
 static void test_grammar_valid_paths(void) {
     ASSERT(ns_parse_valid("0/hmr"), "short alias path is valid");
@@ -45,6 +67,8 @@ static void test_grammar_rejects(void) {
     ASSERT(!ns_parse_valid("x/hss"), "non-numeric root rejected");
     TEST_PASS();
 }
+
+/* --- aliases ------------------------------------------------------- */
 
 static void test_alias_expansion(void) {
     char canon[NS_MAX_PATH];
@@ -73,15 +97,15 @@ static void test_alias_expansion(void) {
 static void test_alias_equivalence(void) {
     /* Alias and canonical must resolve to the IDENTICAL resource. */
     ns_resource_t a, b;
-    ASSERT(ns_resolve("0/hss", &a) == 0, "resolve via alias");
-    ASSERT(ns_resolve("0/hardware/storage/ssd", &b) == 0, "resolve via canonical");
+    ASSERT(ns_resolve("0/hsh", &a) == 0, "resolve via alias");
+    ASSERT(ns_resolve("0/hardware/storage/hdd", &b) == 0, "resolve via canonical");
 
     ASSERT(a.kind == b.kind, "same kind");
     ASSERT(a.domain == b.domain, "same domain");
     ASSERT(a.part_index == b.part_index, "same part_index");
     ASSERT(a.device != 0 && b.device != 0 && strcmp(a.device, b.device) == 0, "same device");
-    ASSERT(strcmp(a.canonical, "0/hardware/storage/ssd") == 0, "alias resolves to canonical spelling");
-    ASSERT(strcmp(b.canonical, "0/hardware/storage/ssd") == 0, "canonical is stable");
+    ASSERT(strcmp(a.canonical, "0/hardware/storage/hdd") == 0, "alias resolves to canonical spelling");
+    ASSERT(strcmp(b.canonical, "0/hardware/storage/hdd") == 0, "canonical is stable");
 
     /* Same for an aliased partition path */
     ASSERT(ns_resolve("0/hsh/partitions/2", &a) == 0, "aliased partition resolves");
@@ -92,6 +116,8 @@ static void test_alias_equivalence(void) {
     TEST_PASS();
 }
 
+/* --- classification ------------------------------------------------ */
+
 static void test_classification(void) {
     ns_resource_t r;
 
@@ -100,16 +126,31 @@ static void test_classification(void) {
     ASSERT(ns_resolve("0/hardware/storage", &r) == 0 && r.kind == NS_HARDWARE_DIR, "storage is structural dir");
     ASSERT(ns_resolve("0/hardware/memory/ram", &r) == 0 && r.kind == NS_MEMORY_RAM, "ram classifies as memory");
     ASSERT(ns_resolve("0/hardware/cpu", &r) == 0 && r.kind == NS_CPU, "cpu classifies");
-    ASSERT(ns_resolve("0/hardware/storage/hdd", &r) == 0 && r.kind == NS_STORAGE_DEVICE, "hdd is a device");
+
+    /* Detected device class: fixture disk reports HDD. */
+    ASSERT(ns_resolve("0/hardware/storage/hdd", &r) == 0 && r.kind == NS_STORAGE_DEVICE,
+           "attached device class resolves");
     ASSERT(r.device && strcmp(r.device, "hdd") == 0, "device name recorded");
+
+    /* Topology honesty: classes with no attached hardware are UNKNOWN. */
+    ASSERT(ns_resolve("0/hardware/storage/ssd", &r) == -2, "absent ssd class unknown");
+    ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/1", &r) == -2,
+           "partitions under absent class unknown");
+
     ASSERT(ns_resolve("0/hardware/storage/hdd/partitions", &r) == 0 &&
            r.kind == NS_PARTITIONS_DIR, "partitions dir classifies");
     ASSERT(ns_resolve("0/user/docs", &r) == 0 && r.kind == NS_USER_STORE, "user store classifies");
 
-    ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/3", &r) == 0 &&
+    /* A partition resource covers its whole volume-relative tree. */
+    ASSERT(ns_resolve("0/hardware/storage/hdd/partitions/3", &r) == 0 &&
            r.kind == NS_PARTITION && r.part_index == 3, "partition index parsed");
+    ASSERT(ns_resolve("0/hardware/storage/hdd/partitions/3/deep/file.txt", &r) == 0 &&
+           r.kind == NS_PARTITION && r.part_index == 3,
+           "content below a partition resolves as that partition");
     TEST_PASS();
 }
+
+/* --- errors -------------------------------------------------------- */
 
 static void test_errors(void) {
     ns_resource_t r;
@@ -119,10 +160,8 @@ static void test_errors(void) {
     ASSERT(ns_resolve("0/hardware/storage/tape", &r) == -2, "unknown storage type unresolved");
     ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/0", &r) == -2,
            "partition 0 invalid (1-based)");
-    ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/abc", &r) == -2,
+    ASSERT(ns_resolve("0/hardware/storage/hdd/partitions/abc", &r) == -2,
            "non-numeric partition invalid");
-    ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/99/deep", &r) == -2,
-           "depth below a partition unresolved");
     ASSERT(ns_resolve("0/hardware/memory/swap", &r) == -2, "undefined memory node unresolved");
     ASSERT(ns_describe("garbage", 0, 0) < 0, "describe rejects garbage grammar");
     TEST_PASS();
@@ -130,16 +169,102 @@ static void test_errors(void) {
 
 static void test_partition_requires_ready_backend(void) {
     /* Reset backend state: no disk, empty GPT table -> part_init fails
-     * and clears its readiness flag. Resolution still classifies; the
-     * description reports the unavailable backend instead of crashing. */
+     * and clears its readiness flag. With no hardware attached there is
+     * NO hdd/ssd class at all — the namespace reports unknown instead of
+     * pretending a device exists. */
     mock_disk_set_ready(0);
     mock_gpt_setup(0, 0);
     part_init();
-    char text[512];
-    ASSERT(ns_describe("0/hardware/storage/ssd/partitions/1", text, sizeof(text)) == 0,
-           "describe works without hardware");
-    ASSERT(strstr(text, "unavailable") != 0 || strstr(text, "none attached") != 0,
-           "backend unavailability reported");
+    ns_resource_t r;
+    ASSERT(ns_resolve("0/hardware/storage/hdd", &r) == -2,
+           "no hardware -> no storage class (topology honesty)");
+    ASSERT(ns_resolve("0/hardware/storage/ssd", &r) == -2,
+           "no hardware -> no ssd class either");
+    ASSERT(ns_describe("0/hardware/storage/hdd/partitions/1", 0, 0) == -2,
+           "describe reports unknown, never crashes");
+    TEST_PASS();
+}
+
+/* --- shell argument translation ------------------------------------ */
+
+static void test_fs_path_passthrough(void) {
+    char out[NS_MAX_PATH];
+    ASSERT(ns_to_fs_path("/proc/uptime", out, sizeof(out)) == NS_FS_NOT_NS,
+           "legacy absolute path passes through");
+    ASSERT(ns_to_fs_path("notes.txt", out, sizeof(out)) == NS_FS_NOT_NS,
+           "bare filename passes through");
+    ASSERT(ns_to_fs_path("1file", out, sizeof(out)) == NS_FS_NOT_NS,
+           "digit-leading name without slash passes through");
+    ASSERT(ns_to_fs_path("", out, sizeof(out)) == NS_FS_NOT_NS,
+           "empty argument passes through");
+    TEST_PASS();
+}
+
+static void test_fs_path_partition_translation(void) {
+    setup_two_partitions_for_ns();               /* default HDD-class device */
+    ASSERT(volume_use_partition(1) == 0, "mount partition 1");
+
+    char out[NS_MAX_PATH];
+    ASSERT(ns_to_fs_path("0/hsh/partitions/1/a.txt", out, sizeof(out)) == NS_FS_OK,
+           "aliased volume path translates");
+    ASSERT(strcmp(out, "/a.txt") == 0, "volume-relative file path");
+
+    ASSERT(ns_to_fs_path("0/HARDWARE/Storage/HDD/partitions/1/docs/x.txt",
+                         out, sizeof(out)) == NS_FS_OK,
+           "canonical uppercase path translates (normalized)");
+    ASSERT(strcmp(out, "/docs/x.txt") == 0, "nested remainder preserved");
+
+    ASSERT(ns_to_fs_path("0/hsh/partitions/1/", out, sizeof(out)) == NS_FS_OK,
+           "trailing slash tolerated on volume root");
+    ASSERT(strcmp(out, "/") == 0, "bare volume maps to fs root");
+
+    /* Wrong / unmounted volumes */
+    ASSERT(ns_to_fs_path("0/hsh/partitions/2/a.txt", out, sizeof(out)) == NS_FS_EVOLUME,
+           "unmounted second volume rejected");
+
+    volume_use_whole_disk();
+    ASSERT(ns_to_fs_path("0/hsh/partitions/1/a.txt", out, sizeof(out)) == NS_FS_EVOLUME,
+           "no mounted volume rejected");
+    TEST_PASS();
+}
+
+static void test_fs_path_user_store(void) {
+    setup_two_partitions_for_ns();
+    volume_use_partition(1);
+
+    char out[NS_MAX_PATH];
+    ASSERT(ns_to_fs_path("0/user/readme.txt", out, sizeof(out)) == NS_FS_OK,
+           "user store path translates");
+    ASSERT(strcmp(out, "/readme.txt") == 0, "user root binds the active volume");
+
+    ASSERT(ns_to_fs_path("0/user/docs/nested.txt", out, sizeof(out)) == NS_FS_OK,
+           "nested user path translates");
+    ASSERT(strcmp(out, "/docs/nested.txt") == 0, "user nesting preserved");
+
+    ASSERT(ns_to_fs_path("0/user", out, sizeof(out)) == NS_FS_OK, "bare user root ok");
+    ASSERT(strcmp(out, "/") == 0, "bare user root maps to fs root");
+    TEST_PASS();
+}
+
+static void test_fs_path_errors(void) {
+    setup_two_partitions_for_ns();
+    volume_use_partition(1);
+
+    char out[NS_MAX_PATH];
+    ASSERT(ns_to_fs_path("garbage", out, sizeof(out)) == NS_FS_NOT_NS,
+           "non-namespace input passes through (not a parse error)");
+    ASSERT(ns_to_fs_path("0//x", out, sizeof(out)) == NS_FS_EPARSE,
+           "empty component is a parse error");
+    ASSERT(ns_to_fs_path("0/nothing/here", out, sizeof(out)) == NS_FS_EUNKNOWN,
+           "unknown resource errors");
+    ASSERT(ns_to_fs_path("0/hmr", out, sizeof(out)) == NS_FS_EKIND,
+           "memory has no filesystem");
+    ASSERT(ns_to_fs_path("0/hardware/cpu", out, sizeof(out)) == NS_FS_EKIND,
+           "cpu has no filesystem");
+    ASSERT(ns_to_fs_path("0/hardware/storage/ssd/partitions/1/x", out, sizeof(out)) == NS_FS_EUNKNOWN,
+           "volume on absent device class is unknown");
+    ASSERT(ns_to_fs_path("0/hsh/partitions/9/x", out, sizeof(out)) == NS_FS_EVOLUME,
+           "absent partition on mounted device is a volume error");
     TEST_PASS();
 }
 
@@ -155,6 +280,10 @@ test_suite_t* create_ns_test_suite(void) {
     test_suite_add_test(&suite, "errors", test_errors);
     test_suite_add_test(&suite, "partition_requires_ready_backend",
                         test_partition_requires_ready_backend);
+    test_suite_add_test(&suite, "fs_path_passthrough", test_fs_path_passthrough);
+    test_suite_add_test(&suite, "fs_path_partition_translation", test_fs_path_partition_translation);
+    test_suite_add_test(&suite, "fs_path_user_store", test_fs_path_user_store);
+    test_suite_add_test(&suite, "fs_path_errors", test_fs_path_errors);
 
     return &suite;
 }

@@ -432,6 +432,14 @@ int disk_init(void) { return mock_disk_ready ? 0 : -1; }
 int disk_is_ready(void) { return mock_disk_ready; }
 uint64_t disk_get_size(void) { return mock_disk_ready ? 64ULL * 1024 * 1024 : 0; }
 
+/* Media class control: 1 = SSD, 0 = HDD (default). */
+static int mock_disk_ssd = 0;
+void mock_disk_set_ssd(int ssd) { mock_disk_ssd = ssd; }
+int disk_is_ssd(void) {
+    if (!mock_disk_ready) return -1;
+    return mock_disk_ssd;
+}
+
 int disk_read(uint32_t lba, uint32_t count, void* buffer) {
     if (!mock_disk_ready || !buffer || count == 0) return -1;
     mock_last_lba = lba;
