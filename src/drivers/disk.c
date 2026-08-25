@@ -101,19 +101,27 @@ int disk_init(void) {
     outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
     io_wait();
     
-    /* Check if drive exists */
-    uint8_t status = inb(ATA_STATUS);
-    if (status == 0) {
-        return -1;  /* No drive */
+    /* Poll for the drive to respond instead of reading STATUS once.
+     * A single read races the command under accelerated emulation
+     * (observed as intermittent "no disk" boots under WHPX).
+     * 0x00 = floating bus = no drive attached. */
+    uint8_t status = 0xFF;
+    int spins;
+    for (spins = 100000; spins > 0; spins--) {
+        status = inb(ATA_STATUS);
+        if (status == 0x00) {
+            return -1;  /* No drive */
+        }
+        if (!(status & ATA_STATUS_BSY)) {
+            break;
+        }
     }
-    
-    /* Wait for completion */
-    if (wait_ready() < 0) {
-        return -1;
+    if (spins == 0) {
+        return -1;  /* Drive stuck busy */
     }
     
     /* Check for error */
-    if (status & ATA_STATUS_ERR) {
+    if (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) {
         return -1;
     }
     
