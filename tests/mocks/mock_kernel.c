@@ -388,6 +388,11 @@ static uint32_t mock_last_count = 0;
 static int mock_last_is_write = 0;
 static int mock_io_calls = 0;
 
+/* Range of LBAs touched since the last io_reset (min start, max end).
+ * Lets tests prove block I/O never escapes a bound volume. */
+static uint64_t mock_touch_min = 0;
+static uint64_t mock_touch_max = 0;
+
 #define MOCK_GPT_MAX_PARTS 16
 
 static gpt_entry_t mock_gpt_table[MOCK_GPT_MAX_PARTS];
@@ -400,6 +405,13 @@ void mock_disk_io_reset(void) {
     mock_last_lba = 0;
     mock_last_count = 0;
     mock_last_is_write = 0;
+    mock_touch_min = 0;
+    mock_touch_max = 0;
+}
+
+void mock_disk_io_range(uint64_t* min_lba, uint64_t* max_end_lba) {
+    if (min_lba) *min_lba = mock_touch_min;
+    if (max_end_lba) *max_end_lba = mock_touch_max;
 }
 
 void mock_disk_last_io(uint64_t* lba, uint32_t* count, int* is_write, int* calls) {
@@ -426,6 +438,8 @@ int disk_read(uint32_t lba, uint32_t count, void* buffer) {
     mock_last_count = count;
     mock_last_is_write = 0;
     mock_io_calls++;
+    if (mock_io_calls == 1 || lba < mock_touch_min) mock_touch_min = lba;
+    if ((uint64_t)lba + count > mock_touch_max) mock_touch_max = (uint64_t)lba + count;
     return 0;
 }
 
@@ -435,6 +449,8 @@ int disk_write(uint32_t lba, uint32_t count, const void* buffer) {
     mock_last_count = count;
     mock_last_is_write = 1;
     mock_io_calls++;
+    if (mock_io_calls == 1 || lba < mock_touch_min) mock_touch_min = lba;
+    if ((uint64_t)lba + count > mock_touch_max) mock_touch_max = (uint64_t)lba + count;
     return 0;
 }
 

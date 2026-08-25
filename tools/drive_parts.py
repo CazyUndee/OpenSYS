@@ -34,6 +34,7 @@ KERNEL = os.path.join(HERE, "..", "bin", "kernel0.bin")
 IMAGE = os.path.join(HERE, "gpt_test.img")
 LOG = os.path.join(HERE, "parts_serial.log")
 PORT = 4451
+P1_LBA = 2048  # first sector of partition 1 (where the fs volume starts)
 
 # Regenerate the disposable GPT image so fs_format's LBA0 write never
 # corrupts a previous run's protective MBR.
@@ -54,7 +55,8 @@ proc = subprocess.Popen([
     "-drive", f"file={IMAGE},if=ide,format=raw,index=0",
     "-m", "128",
     "-no-reboot", "-no-shutdown",
-], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+], stdout=subprocess.DEVNULL,
+   stderr=open(os.path.join(HERE, "parts_qemu_err.log"), "w"))
 
 def send_key(key):
     try:
@@ -137,9 +139,11 @@ try:
     boot = read_log()
     ok_ready = "[PART] Partition Management Ready!" in boot
     ok_found = "Found 2 partitions" in boot
+    ok_volume = "FS volume: storage partitions/1" in boot
     checks = [
         ("boot: [PART] ready marker", ok_ready, boot[-400:]),
         ("boot: Found 2 partitions", ok_found, boot[-400:]),
+        ("boot: fs bound to partitions/1", ok_volume, boot[-500:]),
     ]
 
     w = LogWatcher()
@@ -182,6 +186,40 @@ try:
         print(f"{status}: {name}")
         if not ok:
             print(f"  tail: {tail[-300:]!r}")
+
+    # ---- Post-run disk-image inspection (host side) ----
+    # The fs must have formatted INSIDE partition 1, leaving the
+    # protective MBR (LBA 0) and GPT header (LBA 1) untouched.
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except Exception:
+        proc.kill()
+    time.sleep(1)
+    try:
+        with open(IMAGE, 'rb') as f:
+            img = f.read()
+        SECT = 512
+        mbr_ok = img[0x1BE + 4] == 0xEE and img[510:512] == b'\x55\xAA'
+        gpt_ok = img[1 * SECT:1 * SECT + 8] == b'EFI PART'
+        fs_magic = bytes.fromhex('504c414e')      # FS_MAGIC 0x4E414C50 LE -> "PLAN"
+        p1_fs_ok = img[P1_LBA * SECT:P1_LBA * SECT + 4] == fs_magic
+        p2_untouched = img[4096 * SECT:4096 * SECT + 4] != fs_magic
+        img_checks = [
+            ("image: protective MBR survived", mbr_ok, ''),
+            ("image: GPT header survived", gpt_ok, ''),
+            ("image: FS boot sector inside partition 1", p1_fs_ok, ''),
+            ("image: partition 2 not formatted", p2_untouched, ''),
+        ]
+        for name, ok, tail in img_checks:
+            status = "PASS" if ok else "FAIL"
+            if not ok:
+                all_ok = False
+            print(f"{status}: {name}")
+    except OSError as e:
+        print(f"FAIL: image inspection unavailable ({e})")
+        all_ok = False
+
     sys.exit(0 if all_ok else 1)
 
 finally:
