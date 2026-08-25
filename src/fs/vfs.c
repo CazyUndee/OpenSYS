@@ -99,7 +99,7 @@ static int vfile_vfs_size(int internal_fd) {
     /* Dynamic /proc/self/fd/N forwards to another descriptor; generating
      * it to measure size would consume that descriptor (side effect).
      * Report 0 — the size is derived on read. */
-    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) return 0;
+    if (k_strncmp(path, "/0/system/self/fd/", k_strlen("/0/system/self/fd/")) == 0) return 0;
     int len = vfile_read(path, vfile_scratch, sizeof(vfile_scratch));
     return len < 0 ? 0 : len;
 }

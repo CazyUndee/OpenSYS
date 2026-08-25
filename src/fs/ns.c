@@ -202,8 +202,13 @@ int ns_resolve(const char* path, ns_resource_t* out) {
         if (n == 2) { set_resource(out, NS_HARDWARE_DIR, out->domain, -1, 0); return 0; }
 
         if (k_strcmp(comps[2], "memory") == 0) {
+            if (n == 3) { set_resource(out, NS_HARDWARE_DIR, out->domain, -1, 0); return 0; }
             if (n == 4 && k_strcmp(comps[3], "ram") == 0) {
                 set_resource(out, NS_MEMORY_RAM, out->domain, -1, 0);
+                return 0;
+            }
+            if (n == 4 && k_strcmp(comps[3], "info") == 0) {
+                set_resource(out, NS_HWINFO, out->domain, -1, 0);
                 return 0;
             }
             out->kind = NS_UNRESOLVED;
@@ -256,12 +261,37 @@ int ns_resolve(const char* path, ns_resource_t* out) {
 
         if (k_strcmp(comps[2], "cpu") == 0) {
             if (n == 3) { set_resource(out, NS_CPU, out->domain, -1, 0); return 0; }
+            if (n == 4 && k_strcmp(comps[3], "id") == 0) {
+                set_resource(out, NS_HWINFO, out->domain, -1, 0);
+                return 0;
+            }
             out->kind = NS_UNRESOLVED;
             return -2;
         }
 
+        /* Single-file hardware info nodes */
+        if (n == 3 && (k_strcmp(comps[2], "platform") == 0 ||
+                       k_strcmp(comps[2], "pci") == 0)) {
+            set_resource(out, NS_HWINFO, out->domain, -1, 0);
+            return 0;
+        }
+
         out->kind = NS_UNRESOLVED;
         return -2;
+    }
+
+    if (k_strcmp(comps[1], "system") == 0) {
+        /* The whole system subtree is content-addressable: leaves are
+         * validated by the resource backend, not the grammar walk. */
+        if (n == 2) { set_resource(out, NS_SYSTEM_DIR, out->domain, -1, 0); return 0; }
+        set_resource(out, NS_SYSTEM_NODE, out->domain, -1, 0);
+        return 0;
+    }
+
+    if (k_strcmp(comps[1], "dev") == 0) {
+        if (n == 2) { set_resource(out, NS_DEV_DIR, out->domain, -1, 0); return 0; }
+        set_resource(out, NS_DEV_SHIM, out->domain, -1, 0);
+        return 0;
     }
 
     if (k_strcmp(comps[1], "user") == 0) {
@@ -286,7 +316,12 @@ static const char* kind_name(ns_kind_t k) {
         case NS_PARTITIONS_DIR: return "partition table";
         case NS_MEMORY_RAM:     return "system memory";
         case NS_CPU:            return "processor";
+        case NS_HWINFO:         return "hardware information";
         case NS_HARDWARE_DIR:   return "hardware category";
+        case NS_SYSTEM_DIR:     return "system category";
+        case NS_SYSTEM_NODE:    return "system resource";
+        case NS_DEV_DIR:        return "device shims";
+        case NS_DEV_SHIM:       return "device";
         case NS_USER_STORE:     return "user storage";
         default:                return "unknown";
     }
@@ -471,13 +506,22 @@ int ns_to_fs_path(const char* input, char* out, size_t max) {
         rest = skip_components(r.canonical, 6);   /* 0/hardware/storage/dev/partitions/N */
     } else if (r.kind == NS_USER_STORE) {
         rest = skip_components(r.canonical, 2);   /* 0/user */
+    } else if (r.kind == NS_SYSTEM_NODE || r.kind == NS_DEV_SHIM ||
+               r.kind == NS_HWINFO || r.kind == NS_MEMORY_RAM ||
+               r.kind == NS_CPU) {
+        /* Namespace content lives in the VFS under the "/0" prefix. */
+        rest = r.canonical;
     } else {
         return NS_FS_EKIND;
     }
 
-    size_t need = 1 + k_strlen(rest) + 1;         /* '/' + rest + NUL */
-    if (need > max) return NS_FS_EPARSE;
+    /* Volume-relative paths start at "/rest"; namespace content maps to
+     * "/<canonical>" — canonical begins with the domain digit, so the
+     * VFS-internal spelling is "/0/system/..." etc. */
+    const char* tail = (r.kind == NS_PARTITION || r.kind == NS_USER_STORE)
+                       ? rest : r.canonical;
+    if ((int)max < (int)k_strlen(tail) + 2) return NS_FS_EPARSE;
     out[0] = '/';
-    k_strcpy(out + 1, rest);
+    k_strcpy(out + 1, tail);
     return NS_FS_OK;
 }

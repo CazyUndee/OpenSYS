@@ -111,7 +111,7 @@ print(f"  {'PASS' if has_shell_proc else 'FAIL'}  Shell process visible in ps")
 # Type more commands
 type_text(mon, "echo test from shell process")
 time.sleep(2)
-type_text(mon, "read /proc/uptime")
+type_text(mon, "read 0/system/runtime/uptime")
 time.sleep(2)
 
 with open(LOG, "r", errors="replace") as f:
@@ -126,7 +126,7 @@ has_echo = "test from shell process" in log3
 has_uptime = "Uptime" in log3 or "uptime" in log3
 print(f"\n=== Additional checks ===")
 print(f"  {'PASS' if has_echo else 'FAIL'}  echo command works")
-print(f"  {'PASS' if has_uptime else 'FAIL'}  read /proc/uptime works")
+print(f"  {'PASS' if has_uptime else 'FAIL'}  read 0/system/runtime/uptime works")
 
 # Cleanup
 try:

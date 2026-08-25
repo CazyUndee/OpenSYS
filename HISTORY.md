@@ -1,5 +1,41 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Namespace slice 4 — legacy virtual paths REMOVED (complete migration)
+
+### Context
+Directive: resolve aliasing completely — actually move resources to their canonical `0/` homes rather than mapping old spellings onto new ones. Decision recorded in STATE: legacy Unix-style paths are removed entirely; Plan0 has exactly one namespace.
+
+### Changes
+
+#### `src/fs/vfile.c` + `include/vfile.h`
+- Registry re-homed: `0/system/processes|time|version|timer|stat|interrupts|mounts|heap`, `0/system/hostname` (rw), `0/system/kernel/{name,version,arch}`, `0/system/runtime/uptime`, `0/system/self/{pid,name,status,fdinfo}` + `0/system/self/fd` dir with dynamic `/N` read-through, `0/hardware/memory/{ram,info}`, `0/hardware/cpu`, `0/hardware/cpu-id`, `0/hardware/platform`, `0/hardware/pci`, `0/dev/{null,zero,console}` (rw).
+- Directory listings rebuilt for the new tree (`ls /` now shows `0`; 0/, 0/system, kernel/runtime/self, hardware/memory listings).
+- **Hostname deduplicated**: the old twin registrations (`/proc/hostname` + `/sys/kernel/hostname`) collapse into the single canonical `0/system/hostname`; wrapper generators deleted.
+- VFS mount changed from `/proc`,`/sys`,`/dev` to a single `/0` plumbing prefix (NULL-ops → vfile adapter routing unchanged).
+- Dynamic fd prefix updated in `vfile_exists`/`vfile_read` and in `vfs.c`'s size check.
+
+#### `src/fs/ns.c` + `include/ns.h`
+- New kinds: NS_SYSTEM_DIR/NS_SYSTEM_NODE, NS_DEV_DIR/NS_DEV_SHIM, NS_HWINFO.
+- Classification: entire `0/system/**` subtree is content-addressable (leaf validation delegated to the backend); `0/dev/*` likewise; hardware info leaves (`platform`, `pci`, `cpu-id`, `memory/info`) classified.
+- Translation extended: system/dev/hw-info/memory/cpu kinds map to internal `/0<canonical>`; partition/user remain volume-relative. Fixed two translation bugs found by QEMU probing: content kinds produced `/00...` (canonical already starts with the domain digit), and an int/size_t sign-compare.
+
+#### Consumers
+- Host tests: `test_vfile.c` fully migrated to `/0`-internal spellings + semantic updates (single namespace mount, new listing expectations, hostname dedup, O_CREAT-under-/0 rejection); `test_ns.c` legacy-passthrough assertions now use synthetic `/legacy/...` spellings; translation suite gained system/dev/memory cases. Net 167 tests (two duplicate hostname tests removed).
+- Drive scripts (14): all legacy path arguments migrated (`drive_vcat`, `drive_vfile*`, `drive_writable`, `drive_fdinfo`, `drive_heap`, `drive_stdio`, `drive_redir`, `drive_cmds`, `drive_mounts`, `drive_shell_process`, `test_process_shell`, `drive_parts`, `drive_ns`); drive_ns gained an explicit legacy-rejection check.
+- AGENTS.md pitfall #9 rewritten for the namespace model.
+
+### Debugging note
+Migration was driven by throwaway scripted rewrites; two scripted-corruption bugs (`/00/dev/...` double-prefix from an over-broad doc map, and slash-consuming replacements inside test literals) were caught by the host suite and fixed, after which clean builds were treated as the only source of truth.
+
+### Verification
+- Kernel build clean (0 compiler warnings).
+- Host suite: **167/167**.
+- QEMU/WHPX: `drive_vcat.py` **72/72** (uptime/version/processes/kernel-arch through fd layer under new paths, grep+wc on `0/system/runtime/uptime`, dev shims), `drive_parts.py` **13/13**, `drive_ns.py` **6/6** (incl. `ns /proc/uptime` → invalid-path-syntax rejection on real hardware).
+
+### Results
+- There is exactly ONE namespace: every resource lives at its `0/...` address; Unix-style paths fail by design ("File not found" / "invalid path syntax").
+- Remaining addressing work: directory listing for namespace nodes via ns (structural dirs currently EKIND for file ops), `0/user/` binding introspection, then non-addressing backlog (AHCI, debug infrastructure).
+
 ## 2026-08-25 — Agent Session: Namespace slice 3 — shell speaks the namespace
 
 ### Context

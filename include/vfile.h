@@ -9,22 +9,20 @@
  * read (or handled on write) and consume no disk storage.
  *
  * Directory layout:
- *   /proc/uptime       — seconds since boot
- *   /proc/memory       — RAM total/free
- *   /proc/cpu          — CPU vendor and feature flags
- *   /proc/processes    — active process table
- *   /proc/datetime     — current date and time
- *   /proc/version      — OS version string
- *   /proc/hostname     — system hostname (read/write)
- *   /proc/stat         — CPU statistics
- *   /proc/interrupts   — interrupt counts
- *   /sys/kernel/name   — kernel name
- *   /sys/kernel/version — kernel version
- *   /sys/kernel/arch   — architecture
- *   /sys/kernel/hostname — hostname (alias)
- *   /dev/null          — discard any write (read returns 0 bytes)
- *   /dev/zero          — read returns zeros (write discards)
- *   /dev/console       — console output (write goes to terminal)
+ *   0/system/runtime/uptime - seconds since boot
+ *   0/hardware/memory/ram - RAM total/free
+ *   0/hardware/cpu        - CPU vendor and feature flags
+ *   0/system/processes    - active process table
+ *   0/system/time         - current date and time
+ *   0/system/version      - OS version string
+ *   0/system/hostname     - system hostname (read/write)
+ *   0/system/stat         - CPU statistics
+ *   0/system/interrupts   - interrupt counts
+ *   0/system/kernel/name  - kernel name
+ *   0/system/kernel/version - kernel version
+ *   0/system/kernel/arch  - architecture
+ *   0/dev/null            - discard any write (read returns 0 bytes)
+ *   0/dev/zero            - read returns zeros (write discards)
  */
 
 #ifndef VFILE_H
@@ -56,7 +54,7 @@ typedef void (*vfile_list_fn)(vfile_dir_emit_fn emit);
 
 /* A single virtual file entry. */
 typedef struct vfile_entry {
-    char path[VFILE_MAX_PATH];   /* e.g. "/proc/uptime" */
+    char path[VFILE_MAX_PATH];   /* e.g. "0/system/runtime/uptime" */
     int  is_dir;                 /* 1 = directory, 0 = file */
     vfile_read_fn  read_fn;      /* for files: generate content */
     vfile_write_fn write_fn;     /* for files: handle writes (NULL = read-only) */

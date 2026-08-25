@@ -58,7 +58,7 @@ static void test_grammar_valid_paths(void) {
 
 static void test_grammar_rejects(void) {
     ASSERT(!ns_parse_valid(""), "empty path rejected");
-    ASSERT(!ns_parse_valid("/proc/uptime"), "leading-slash Unix path rejected");
+    ASSERT(!ns_parse_valid("/legacy/path"), "leading-slash non-namespace path rejected");
     /* Bare root "0" is VALID by design (machine root); covered in classification. */
     ASSERT(!ns_parse_valid("0//double"), "empty component rejected");
     ASSERT(!ns_parse_valid("0/bad name"), "space rejected");
@@ -155,7 +155,7 @@ static void test_classification(void) {
 static void test_errors(void) {
     ns_resource_t r;
 
-    ASSERT(ns_resolve("/dev/null", &r) < 0, "Unix-style path is a parse error");
+    ASSERT(ns_resolve("/0/dev/null", &r) < 0, "Unix-style path is a parse error");
     ASSERT(ns_resolve("0/nothing/here", &r) == -2, "unknown branch -> unresolved (-2)");
     ASSERT(ns_resolve("0/hardware/storage/tape", &r) == -2, "unknown storage type unresolved");
     ASSERT(ns_resolve("0/hardware/storage/ssd/partitions/0", &r) == -2,
@@ -189,7 +189,7 @@ static void test_partition_requires_ready_backend(void) {
 
 static void test_fs_path_passthrough(void) {
     char out[NS_MAX_PATH];
-    ASSERT(ns_to_fs_path("/proc/uptime", out, sizeof(out)) == NS_FS_NOT_NS,
+    ASSERT(ns_to_fs_path("/legacy/file.txt", out, sizeof(out)) == NS_FS_NOT_NS,
            "legacy absolute path passes through");
     ASSERT(ns_to_fs_path("notes.txt", out, sizeof(out)) == NS_FS_NOT_NS,
            "bare filename passes through");
@@ -251,16 +251,27 @@ static void test_fs_path_errors(void) {
     volume_use_partition(1);
 
     char out[NS_MAX_PATH];
+    /* Namespace content resources translate onto the /0 VFS prefix. */
+    ASSERT(ns_to_fs_path("0/system/version", out, sizeof(out)) == NS_FS_OK,
+           "system node translates");
+    ASSERT(strcmp(out, "/0/system/version") == 0, "system node maps under /0");
+    ASSERT(ns_to_fs_path("0/dev/null", out, sizeof(out)) == NS_FS_OK,
+           "dev shim translates");
+    ASSERT(strcmp(out, "/0/dev/null") == 0, "dev shim maps under /0");
+    ASSERT(ns_to_fs_path("0/hardware/memory/ram", out, sizeof(out)) == NS_FS_OK,
+           "memory ram translates");
+    ASSERT(strcmp(out, "/0/hardware/memory/ram") == 0, "ram maps under /0");
+
     ASSERT(ns_to_fs_path("garbage", out, sizeof(out)) == NS_FS_NOT_NS,
            "non-namespace input passes through (not a parse error)");
     ASSERT(ns_to_fs_path("0//x", out, sizeof(out)) == NS_FS_EPARSE,
            "empty component is a parse error");
     ASSERT(ns_to_fs_path("0/nothing/here", out, sizeof(out)) == NS_FS_EUNKNOWN,
            "unknown resource errors");
-    ASSERT(ns_to_fs_path("0/hmr", out, sizeof(out)) == NS_FS_EKIND,
-           "memory has no filesystem");
-    ASSERT(ns_to_fs_path("0/hardware/cpu", out, sizeof(out)) == NS_FS_EKIND,
-           "cpu has no filesystem");
+    ASSERT(ns_to_fs_path("0/hardware/storage/hdd", out, sizeof(out)) == NS_FS_EKIND,
+           "structural device node has no filesystem");
+    ASSERT(ns_to_fs_path("0/hardware/storage/hdd/partitions", out, sizeof(out)) == NS_FS_EKIND,
+           "partition-table listing has no filesystem");
     ASSERT(ns_to_fs_path("0/hardware/storage/ssd/partitions/1/x", out, sizeof(out)) == NS_FS_EUNKNOWN,
            "volume on absent device class is unknown");
     ASSERT(ns_to_fs_path("0/hsh/partitions/9/x", out, sizeof(out)) == NS_FS_EVOLUME,

@@ -108,8 +108,8 @@ try:
     if not ok:
         print(f"  tail: {out[-300:]!r}")
 
-    # 2. /proc/self/fd shows the std descriptors (0/1/2 = device)
-    type_text("vcat /proc/self/fdinfo\n")
+    # 2. 0/system/self/fd shows the std descriptors (0/1/2 = device)
+    type_text("vcat 0/system/self/fdinfo\n")
     ok = w.wait_for("bytes via fd", timeout=30)
     out = w.tail()
     ok = ok and "device" in out

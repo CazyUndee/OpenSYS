@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive Plan 0 shell via QEMU TCP monitor to verify /proc/self/fd."""
+"""Drive Plan 0 shell via QEMU TCP monitor to verify 0/system/self/fd."""
 import subprocess, time, socket, sys, os
 
 QEMU = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
@@ -64,11 +64,11 @@ try:
     time.sleep(12)
 
     commands = [
-        "ls /proc/self",
-        "read /proc/self/fdinfo",
-        "ls /proc/self/fd",
+        "ls 0/system/self",
+        "read 0/system/self/fdinfo",
+        "ls 0/system/self/fd",
         "pipe",
-        "read /proc/self/fdinfo",
+        "read 0/system/self/fdinfo",
     ]
 
     for cmd in commands:
@@ -88,7 +88,7 @@ try:
 
     print("\n=== Verification ===")
     checks = [
-        ("fd listed in /proc/self", "fd" in log and "fdinfo" in log),
+        ("fd listed in 0/system/self", "fd" in log and "fdinfo" in log),
         ("fdinfo readable", "fd  Type" in log),
         ("fd dir readable", "pipe-r" in log or "file" in log),
         ("pipe still works", "hello through pipe" in log),

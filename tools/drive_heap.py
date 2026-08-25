@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive Plan 0 shell via QEMU TCP monitor to verify /proc/heap."""
+"""Drive Plan 0 shell via QEMU TCP monitor to verify 0/system/heap."""
 import subprocess, time, socket, sys, os
 
 QEMU = r"C:\Program Files\qemu\qemu-system-x86_64.exe"
@@ -65,9 +65,9 @@ try:
 
     commands = [
         "ls /proc",
-        "read /proc/heap",
-        "read /proc/heap",
-        "read /proc/meminfo",
+        "read 0/system/heap",
+        "read 0/system/heap",
+        "read 0/hardware/memory/info",
     ]
 
     for cmd in commands:

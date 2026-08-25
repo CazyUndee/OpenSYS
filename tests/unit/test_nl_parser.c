@@ -129,9 +129,9 @@ void test_nl_misc(void) {
     expect_parse("edit file.txt", 0, "edit", "file.txt", "");
     expect_parse("ping 192.168.1.1", 0, "ping", "192.168.1.1", "");
     /* A verb token buried mid-command must NOT claim the phrase: these
-     * are plain token-based commands ("grep X /proc/uptime", "grep beta
+     * are plain token-based commands ("grep X 0/system/runtime/uptime", "grep beta
      * file"), not NL phrases — the parser must decline and fall through. */
-    expect_parse("grep Uptime /proc/uptime", -1, "", "", "");
+    expect_parse("grep Uptime 0/system/runtime/uptime", -1, "", "", "");
     expect_parse("grep beta grepfile.txt", -1, "", "", "");
     /* Leading fillers before the verb still work ("please show me..."). */
     expect_parse("please show me the files", 0, "list", "", "");

@@ -147,7 +147,7 @@ try:
     checks.append(("unknown resource errors cleanly", ok, w.tail(300)))
 
     ok = w.type_and_wait("ns /proc/uptime\n", "invalid path syntax")
-    checks.append(("unix-style path rejected as syntax error", ok, w.tail(300)))
+    checks.append(("legacy unix-style path rejected as syntax error", ok, w.tail(300)))
 
     print()
     all_ok = True

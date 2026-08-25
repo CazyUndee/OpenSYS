@@ -7,7 +7,7 @@ Checks:
      and "Found 2 partitions".
   2. `parts` lists both used entries: "plan0-test" @ LBA 2048 (1024 KB) and
      "data-two" @ LBA 4096.
-  3. Shell regression: `wc /proc/uptime` still works.
+  3. Shell regression: `wc 0/system/runtime/uptime` still works.
 
 fs_mount() reads LBA 0, sees the protective MBR (not FS_MAGIC), and falls
 back to its in-memory format path - expected; the image is disposable and
@@ -188,8 +188,8 @@ try:
     checks.append(("legacy path reads the same resource", ok, w.tail(300)))
 
     # Regression: shell file tooling still works on the GPT-disk boot.
-    ok = w.type_and_wait("wc /proc/uptime\n", "lines,", timeout=20)
-    checks.append(("wc /proc/uptime regression", ok, w.tail(200)))
+    ok = w.type_and_wait("wc 0/system/runtime/uptime\n", "lines,", timeout=20)
+    checks.append(("wc 0/system/runtime/uptime regression", ok, w.tail(200)))
 
     print()
     all_ok = True

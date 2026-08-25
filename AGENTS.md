@@ -60,7 +60,7 @@ src/fs/                Filesystem
   vfs.c                VFS layer with ramfs backend, fd table per process
   ramfs.c              In-memory filesystem (no disk required)
   path.c               Path resolution helper (absolute/relative)
-  vfile.c              Virtual filesystem resource layer (proc/sys/dev) — read/write
+  vfile.c              Namespace resource content layer (0/system, 0/dev, 0/hardware)
 
 src/process/           Process management
   process.c            PCB allocation, kernel/user process creation, ELF loading
@@ -146,7 +146,7 @@ The Makefile `SRCS` variable lists all C and ASM files compiled into the kernel.
 
 8. **Host-side test suite** — Tests in `tests/` compile with host `gcc` (not cross-compiler). The `tests/mocks/mock_kernel.c` provides stub implementations of `kmalloc`, `kfree`, `pmm_*`, `memory_*` using host `malloc`/`free`. Tests validate structure layouts and constants, not runtime kernel behavior. The test framework uses `setjmp`/`longjmp` for proper failure tracking via ASSERT macros.
 
-9. **Virtual filesystem** — `vfile.c` provides read/write virtual files under `/proc`, `/sys`, `/dev`. The shell intercepts virtual paths in `cmd_read_file` and `cmd_write_file` before hitting the real filesystem. `vfile_init()` must be called before `shell_run()`. Writable resources: `/dev/null`, `/dev/zero`, `/dev/console`, `/proc/hostname`, `/sys/kernel/hostname`. `vfile_irq_tick()` is called from `irq_handler()` to feed `/proc/interrupts`.
+9. **Namespace resources** — `vfile.c` registers resource content under the Plan0 namespace (`0/system/*`, `0/dev/*`, `0/hardware/*`) with VFS-internal keys under `/0/...`; legacy Unix-style paths are REMOVED. Shell arguments starting with a digit-slash are translated by `ns_to_fs_path()` in `dispatch()`. `vfile_init()` must be called before `shell_run()`. Writable resources: `0/dev/null`, `0/dev/zero`, `0/dev/console`, `0/system/hostname`. `vfile_irq_tick()` is called from `irq_handler()` to feed `0/system/interrupts`.
 
 10. **Natural-language shell** — `nl_parser.c` translates English-like phrases ("list files in documents", "write hello world to notes.txt") into the canonical (cmd, arg1, arg2) triple. The parser only claims unambiguous phrases; everything else falls through to the token-based parser. Tests in `tests/unit/test_nl_parser.c`.
 

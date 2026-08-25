@@ -20,29 +20,28 @@
 static void test_vfile_init_registers_entries(void) {
     vfile_init();
     ASSERT(vfile_is_virtual("/") == 1, "/ should be virtual (root directory)");
-    ASSERT(vfile_is_virtual("/proc/uptime") == 1, "/proc/uptime should be virtual");
-    ASSERT(vfile_is_virtual("/proc/memory") == 1, "/proc/memory should be virtual");
-    ASSERT(vfile_is_virtual("/proc/cpu") == 1, "/proc/cpu should be virtual");
-    ASSERT(vfile_is_virtual("/proc/processes") == 1, "/proc/processes should be virtual");
-    ASSERT(vfile_is_virtual("/proc/datetime") == 1, "/proc/datetime should be virtual");
-    ASSERT(vfile_is_virtual("/proc/version") == 1, "/proc/version should be virtual");
-    ASSERT(vfile_is_virtual("/proc/hostname") == 1, "/proc/hostname should be virtual");
-    ASSERT(vfile_is_virtual("/proc/stat") == 1, "/proc/stat should be virtual");
-    ASSERT(vfile_is_virtual("/proc/interrupts") == 1, "/proc/interrupts should be virtual");
-    ASSERT(vfile_is_virtual("/proc/mounts") == 1, "/proc/mounts should be virtual");
-    ASSERT(vfile_is_virtual("/proc/heap") == 1, "/proc/heap should be virtual");
-    ASSERT(vfile_is_virtual("/proc/self/pid") == 1, "/proc/self/pid should be virtual");
-    ASSERT(vfile_is_virtual("/proc/self/name") == 1, "/proc/self/name should be virtual");
-    ASSERT(vfile_is_virtual("/proc/self/status") == 1, "/proc/self/status should be virtual");
-    ASSERT(vfile_is_virtual("/sys/kernel/name") == 1, "/sys/kernel/name should be virtual");
-    ASSERT(vfile_is_virtual("/sys/kernel/version") == 1, "/sys/kernel/version should be virtual");
-    ASSERT(vfile_is_virtual("/sys/kernel/arch") == 1, "/sys/kernel/arch should be virtual");
-    ASSERT(vfile_is_virtual("/sys/kernel/hostname") == 1, "/sys/kernel/hostname should be virtual");
-    ASSERT(vfile_is_virtual("/sys/hardware/platform") == 1, "/sys/hardware/platform should be virtual");
-    ASSERT(vfile_is_virtual("/sys/devices/pci") == 1, "/sys/devices/pci should be virtual");
-    ASSERT(vfile_is_virtual("/dev/null") == 1, "/dev/null should be virtual");
-    ASSERT(vfile_is_virtual("/dev/zero") == 1, "/dev/zero should be virtual");
-    ASSERT(vfile_is_virtual("/dev/console") == 1, "/dev/console should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/runtime/uptime") == 1, "/0/system/runtime/uptime should be virtual");
+    ASSERT(vfile_is_virtual("/0/hardware/memory/ram") == 1, "/0/hardware/memory/ram should be virtual");
+    ASSERT(vfile_is_virtual("/0/hardware/cpu") == 1, "/0/hardware/cpu should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/processes") == 1, "/0/system/processes should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/time") == 1, "/0/system/time should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/version") == 1, "/0/system/version should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/hostname") == 1, "/0/system/hostname should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/stat") == 1, "/0/system/stat should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/interrupts") == 1, "/0/system/interrupts should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/mounts") == 1, "/0/system/mounts should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/heap") == 1, "/0/system/heap should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/self/pid") == 1, "/0/system/self/pid should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/self/name") == 1, "/0/system/self/name should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/self/status") == 1, "/0/system/self/status should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/kernel/name") == 1, "/0/system/kernel/name should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/kernel/version") == 1, "/0/system/kernel/version should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/kernel/arch") == 1, "/0/system/kernel/arch should be virtual");
+    ASSERT(vfile_is_virtual("/0/hardware/platform") == 1, "/0/hardware/platform should be virtual");
+    ASSERT(vfile_is_virtual("/0/hardware/pci") == 1, "/0/hardware/pci should be virtual");
+    ASSERT(vfile_is_virtual("/0/dev/null") == 1, "/0/dev/null should be virtual");
+    ASSERT(vfile_is_virtual("/0/dev/zero") == 1, "/0/dev/zero should be virtual");
+    ASSERT(vfile_is_virtual("/0/dev/console") == 1, "/0/dev/console should be virtual");
     TEST_PASS();
 }
 
@@ -51,8 +50,9 @@ static void test_vfile_init_registers_entries(void) {
 static void test_vfile_non_virtual_paths(void) {
     vfile_init();
     ASSERT(vfile_is_virtual("/etc/passwd") == 0, "/etc/passwd should not be virtual");
-    ASSERT(vfile_is_virtual("/proc") == 1, "/proc directory should be virtual");
-    ASSERT(vfile_is_virtual("/proc/") == 0, "/proc/ (trailing slash) should not be virtual");
+    ASSERT(vfile_is_virtual("/proc") == 0, "legacy /proc is gone from the namespace");
+    ASSERT(vfile_is_virtual("/0/system") == 1, "/0/system directory should be virtual");
+    ASSERT(vfile_is_virtual("/0/system/") == 0, "trailing slash should not be virtual");
     ASSERT(vfile_is_virtual("/my_file.txt") == 0, "arbitrary path should not be virtual");
     TEST_PASS();
 }
@@ -62,39 +62,39 @@ static void test_vfile_non_virtual_paths(void) {
 static void test_vfile_read_uptime(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/uptime", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/uptime should return data");
+    int len = vfile_read("/0/system/runtime/uptime", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/runtime/uptime should return data");
     buf[len] = 0;
-    ASSERT(strstr(buf, "Uptime:") != NULL, "/proc/uptime should contain 'Uptime:'");
+    ASSERT(strstr(buf, "Uptime:") != NULL, "/0/system/runtime/uptime should contain 'Uptime:'");
     TEST_PASS();
 }
 
 static void test_vfile_read_memory(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/memory", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/memory should return data");
+    int len = vfile_read("/0/hardware/memory/ram", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/hardware/memory/ram should return data");
     buf[len] = 0;
-    ASSERT(strstr(buf, "Total RAM:") != NULL, "/proc/memory should contain 'Total RAM:'");
-    ASSERT(strstr(buf, "Free RAM:") != NULL, "/proc/memory should contain 'Free RAM:'");
+    ASSERT(strstr(buf, "Total RAM:") != NULL, "/0/hardware/memory/ram should contain 'Total RAM:'");
+    ASSERT(strstr(buf, "Free RAM:") != NULL, "/0/hardware/memory/ram should contain 'Free RAM:'");
     TEST_PASS();
 }
 
 static void test_vfile_read_version(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/version", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/version should return data");
+    int len = vfile_read("/0/system/version", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/version should return data");
     buf[len] = 0;
-    ASSERT(strstr(buf, "Plan 0") != NULL, "/proc/version should contain 'Plan 0'");
+    ASSERT(strstr(buf, "Plan 0") != NULL, "/0/system/version should contain 'Plan 0'");
     TEST_PASS();
 }
 
 static void test_vfile_read_hostname(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/hostname", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/hostname should return data");
+    int len = vfile_read("/0/system/hostname", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/hostname should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "plan0") != NULL, "default hostname should be 'plan0'");
     TEST_PASS();
@@ -103,28 +103,28 @@ static void test_vfile_read_hostname(void) {
 static void test_vfile_read_kernel_name(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/sys/kernel/name", buf, sizeof(buf));
-    ASSERT(len > 0, "/sys/kernel/name should return data");
+    int len = vfile_read("/0/system/kernel/name", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/kernel/name should return data");
     buf[len] = 0;
-    ASSERT(strstr(buf, "Plan 0") != NULL, "/sys/kernel/name should contain 'Plan 0'");
+    ASSERT(strstr(buf, "Plan 0") != NULL, "/0/system/kernel/name should contain 'Plan 0'");
     TEST_PASS();
 }
 
 static void test_vfile_read_kernel_arch(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/sys/kernel/arch", buf, sizeof(buf));
-    ASSERT(len > 0, "/sys/kernel/arch should return data");
+    int len = vfile_read("/0/system/kernel/arch", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/kernel/arch should return data");
     buf[len] = 0;
-    ASSERT(strstr(buf, "x86_64") != NULL, "/sys/kernel/arch should contain 'x86_64'");
+    ASSERT(strstr(buf, "x86_64") != NULL, "/0/system/kernel/arch should contain 'x86_64'");
     TEST_PASS();
 }
 
 static void test_vfile_read_platform(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/sys/hardware/platform", buf, sizeof(buf));
-    ASSERT(len > 0, "/sys/hardware/platform should return data");
+    int len = vfile_read("/0/hardware/platform", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/hardware/platform should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "x86_64") != NULL, "platform should mention x86_64");
     TEST_PASS();
@@ -133,21 +133,21 @@ static void test_vfile_read_platform(void) {
 static void test_vfile_read_null(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/dev/null", buf, sizeof(buf));
-    ASSERT(len == 0, "/dev/null should return 0 bytes");
+    int len = vfile_read("/0/dev/null", buf, sizeof(buf));
+    ASSERT(len == 0, "/0/dev/null should return 0 bytes");
     TEST_PASS();
 }
 
-/* ---- Test: /dev/zero returns NUL bytes ---- */
+/* ---- Test: 0/dev/zero returns NUL bytes ---- */
 
 static void test_vfile_read_zero(void) {
     vfile_init();
     char buf[128];
     memset(buf, 'A', sizeof(buf));
-    int len = vfile_read("/dev/zero", buf, sizeof(buf));
-    ASSERT(len > 0, "/dev/zero should return data");
+    int len = vfile_read("/0/dev/zero", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/dev/zero should return data");
     for (int i = 0; i < len; i++) {
-        ASSERT(buf[i] == 0, "/dev/zero should return NUL bytes");
+        ASSERT(buf[i] == 0, "/0/dev/zero should return NUL bytes");
     }
     TEST_PASS();
 }
@@ -175,33 +175,33 @@ static void test_vfile_list_root(void) {
     dir_entry_count = 0;
     int r = vfile_list("/", count_entries);
     ASSERT(r == 0, "/ should be a virtual directory");
-    ASSERT(dir_entry_count >= 3, "/ should list proc, sys, dev");
+    ASSERT(dir_entry_count >= 1, "/ should list the namespace root 0");
     TEST_PASS();
 }
 
 static void test_vfile_list_proc(void) {
     vfile_init();
     dir_entry_count = 0;
-    int r = vfile_list("/proc", count_entries);
-    ASSERT(r == 0, "/proc should be a virtual directory");
-    ASSERT(dir_entry_count > 0, "/proc should have entries");
+    int r = vfile_list("/0/system", count_entries);
+    ASSERT(r == 0, "/0/system should be a virtual directory");
+    ASSERT(dir_entry_count > 0, "/0/system should have entries");
     TEST_PASS();
 }
 
 static void test_vfile_list_sys(void) {
     vfile_init();
     dir_entry_count = 0;
-    int r = vfile_list("/sys", count_entries);
-    ASSERT(r == 0, "/sys should be a virtual directory");
-    ASSERT(dir_entry_count >= 3, "/sys should have kernel, hardware, devices");
+    int r = vfile_list("/0/hardware", count_entries);
+    ASSERT(r == 0, "/0/hardware should be a virtual directory");
+    ASSERT(dir_entry_count >= 3, "/0/hardware should have cpu, memory, platform");
     TEST_PASS();
 }
 
 static void test_vfile_list_dev(void) {
     vfile_init();
     dir_entry_count = 0;
-    int r = vfile_list("/dev", count_entries);
-    ASSERT(r == 0, "/dev should be a virtual directory");
+    int r = vfile_list("/0/dev", count_entries);
+    ASSERT(r == 0, "/0/dev should be a virtual directory");
     ASSERT(dir_entry_count >= 3, "/dev should have at least null, zero, console");
     TEST_PASS();
 }
@@ -209,9 +209,9 @@ static void test_vfile_list_dev(void) {
 static void test_vfile_list_proc_self(void) {
     vfile_init();
     dir_entry_count = 0;
-    int r = vfile_list("/proc/self", count_entries);
-    ASSERT(r == 0, "/proc/self should be a virtual directory");
-    ASSERT(dir_entry_count >= 3, "/proc/self should have pid, name, status");
+    int r = vfile_list("/0/system/self", count_entries);
+    ASSERT(r == 0, "/0/system/self should be a virtual directory");
+    ASSERT(dir_entry_count >= 3, "/0/system/self should have pid, name, status");
     TEST_PASS();
 }
 
@@ -226,7 +226,7 @@ static void test_vfile_list_non_virtual(void) {
 
 static void test_vfile_list_as_file(void) {
     vfile_init();
-    int r = vfile_list("/proc/uptime", count_entries);
+    int r = vfile_list("/0/system/runtime/uptime", count_entries);
     ASSERT(r == -1, "file path should not be listable as directory");
     TEST_PASS();
 }
@@ -244,7 +244,7 @@ static void test_vfile_read_as_dir(void) {
 static void test_vfile_uptime_content_nonempty(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/uptime", buf, sizeof(buf));
+    int len = vfile_read("/0/system/runtime/uptime", buf, sizeof(buf));
     ASSERT(len > 10, "uptime should have substantial content");
     TEST_PASS();
 }
@@ -252,7 +252,7 @@ static void test_vfile_uptime_content_nonempty(void) {
 static void test_vfile_memory_content_nonempty(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/memory", buf, sizeof(buf));
+    int len = vfile_read("/0/hardware/memory/ram", buf, sizeof(buf));
     ASSERT(len > 20, "memory should have substantial content");
     TEST_PASS();
 }
@@ -260,31 +260,31 @@ static void test_vfile_memory_content_nonempty(void) {
 static void test_vfile_cpuid_content_nonempty(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/cpu", buf, sizeof(buf));
+    int len = vfile_read("/0/hardware/cpu", buf, sizeof(buf));
     ASSERT(len > 10, "cpu info should have substantial content");
     buf[len] = 0;
     ASSERT(strstr(buf, "Vendor:") != NULL, "cpu should contain 'Vendor:'");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/processes content ---- */
+/* ---- Test: 0/system/processes content ---- */
 
 static void test_vfile_processes_content(void) {
     vfile_init();
     char buf[1024];
-    int len = vfile_read("/proc/processes", buf, sizeof(buf));
+    int len = vfile_read("/0/system/processes", buf, sizeof(buf));
     ASSERT(len > 0, "processes should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "PID") != NULL, "processes should contain PID header");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/meminfo content ---- */
+/* ---- Test: 0/hardware/memory/info content ---- */
 
 static void test_vfile_meminfo_content(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/meminfo", buf, sizeof(buf));
+    int len = vfile_read("/0/hardware/memory/info", buf, sizeof(buf));
     ASSERT(len > 0, "meminfo should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "MemTotal:") != NULL, "meminfo should contain MemTotal:");
@@ -292,24 +292,24 @@ static void test_vfile_meminfo_content(void) {
     TEST_PASS();
 }
 
-/* ---- Test: /proc/timer content ---- */
+/* ---- Test: 0/system/timer content ---- */
 
 static void test_vfile_timer_content(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/timer", buf, sizeof(buf));
+    int len = vfile_read("/0/system/timer", buf, sizeof(buf));
     ASSERT(len > 0, "timer should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "ticks:") != NULL, "timer should contain 'ticks:'");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/stat content ---- */
+/* ---- Test: 0/system/stat content ---- */
 
 static void test_vfile_stat_content(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/stat", buf, sizeof(buf));
+    int len = vfile_read("/0/system/stat", buf, sizeof(buf));
     ASSERT(len > 0, "stat should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "cpu ") != NULL, "stat should contain 'cpu '");
@@ -317,12 +317,12 @@ static void test_vfile_stat_content(void) {
     TEST_PASS();
 }
 
-/* ---- Test: /proc/interrupts content ---- */
+/* ---- Test: 0/system/interrupts content ---- */
 
 static void test_vfile_interrupts_content(void) {
     vfile_init();
     char buf[1024];
-    int len = vfile_read("/proc/interrupts", buf, sizeof(buf));
+    int len = vfile_read("/0/system/interrupts", buf, sizeof(buf));
     ASSERT(len > 0, "interrupts should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "IRQ") != NULL, "interrupts should contain IRQ header");
@@ -330,21 +330,19 @@ static void test_vfile_interrupts_content(void) {
     TEST_PASS();
 }
 
-/* ---- Test: /proc/mounts content ---- */
+/* ---- Test: 0/system/mounts content ---- */
 
 static void test_vfile_mounts_content(void) {
     /* Mirror kernel boot order: VFS first (mounts ramfs at /), then vfile */
     vfs_init();
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/mounts", buf, sizeof(buf));
+    int len = vfile_read("/0/system/mounts", buf, sizeof(buf));
     ASSERT(len > 0, "mounts should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "ramfs") != NULL, "mounts should list ramfs");
     ASSERT(strstr(buf, "vfile") != NULL, "mounts should list vfile");
-    ASSERT(strstr(buf, "/proc") != NULL, "mounts should list /proc");
-    ASSERT(strstr(buf, "/sys") != NULL, "mounts should list /sys");
-    ASSERT(strstr(buf, "/dev") != NULL, "mounts should list /dev");
+    ASSERT(strstr(buf, "/0") != NULL, "mounts should list the namespace mount");
     TEST_PASS();
 }
 
@@ -376,26 +374,22 @@ static void test_vfs_mount_idempotent(void) {
 static void test_vfs_mount_vfile_namespaces(void) {
     vfs_init();
     vfile_init();
-    /* vfs_init (/) + vfile_init (/proc, /sys, /dev) */
-    ASSERT(vfs_mount_count() == 4, "vfs+vfile should register 4 mounts");
+    /* vfs_init (/) + vfile_init (/0) */
+    ASSERT(vfs_mount_count() == 2, "vfs+vfile should register root+namespace mounts");
 
     char path[VFS_MAX_PATH];
-    ASSERT(vfs_get_mount(1, path) == 0 && strcmp(path, "/proc") == 0,
-           "mount 1 should be /proc");
-    ASSERT(vfs_get_mount(2, path) == 0 && strcmp(path, "/sys") == 0,
-           "mount 2 should be /sys");
-    ASSERT(vfs_get_mount(3, path) == 0 && strcmp(path, "/dev") == 0,
-           "mount 3 should be /dev");
+    ASSERT(vfs_get_mount(1, path) == 0 && strcmp(path, "/0") == 0,
+           "mount 1 should be the /0 namespace tree");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/heap content ---- */
+/* ---- Test: 0/system/heap content ---- */
 
 static void test_vfile_heap_content(void) {
     vfile_init();
     char buf[1024];
-    int len = vfile_read("/proc/heap", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/heap should return data");
+    int len = vfile_read("/0/system/heap", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/heap should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "Heap total:") != NULL, "heap should contain 'Heap total:'");
     ASSERT(strstr(buf, "Heap used:") != NULL, "heap should contain 'Heap used:'");
@@ -408,47 +402,47 @@ static void test_vfile_heap_content(void) {
 static void test_vfile_heap_integrity_ok(void) {
     vfile_init();
     char buf[1024];
-    int len = vfile_read("/proc/heap", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/heap should return data");
+    int len = vfile_read("/0/system/heap", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/heap should return data");
     buf[len] = 0;
     /* The host mock for kheap_validate() reports a healthy heap */
     ASSERT(strstr(buf, "Integrity:    OK") != NULL, "heap should report Integrity: OK");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/self/pid content ---- */
+/* ---- Test: 0/system/self/pid content ---- */
 
 static void test_vfile_self_pid(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/self/pid", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/self/pid should return data");
+    int len = vfile_read("/0/system/self/pid", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/self/pid should return data");
     buf[len] = 0;
     /* In host tests, process_current() returns NULL, so PID should be 0 */
-    ASSERT(strstr(buf, "0") != NULL, "/proc/self/pid should contain a PID");
+    ASSERT(strstr(buf, "0") != NULL, "/0/system/self/pid should contain a PID");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/self/name content ---- */
+/* ---- Test: 0/system/self/name content ---- */
 
 static void test_vfile_self_name(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/self/name", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/self/name should return data");
+    int len = vfile_read("/0/system/self/name", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/self/name should return data");
     buf[len] = 0;
     /* In host tests, process_current() returns NULL, so name is 'kernel' */
-    ASSERT(strstr(buf, "kernel") != NULL, "/proc/self/name should contain 'kernel'");
+    ASSERT(strstr(buf, "kernel") != NULL, "/0/system/self/name should contain 'kernel'");
     TEST_PASS();
 }
 
-/* ---- Test: /proc/self/status content ---- */
+/* ---- Test: 0/system/self/status content ---- */
 
 static void test_vfile_self_status(void) {
     vfile_init();
     char buf[1024];
-    int len = vfile_read("/proc/self/status", buf, sizeof(buf));
-    ASSERT(len > 0, "/proc/self/status should return data");
+    int len = vfile_read("/0/system/self/status", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/system/self/status should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "Name:") != NULL, "status should contain 'Name:'");
     ASSERT(strstr(buf, "PID:") != NULL, "status should contain 'PID:'");
@@ -456,13 +450,13 @@ static void test_vfile_self_status(void) {
     TEST_PASS();
 }
 
-/* ---- Test: /sys/devices/pci content ---- */
+/* ---- Test: 0/hardware/pci content ---- */
 
 static void test_vfile_devices_pci(void) {
     vfile_init();
     char buf[2048];
-    int len = vfile_read("/sys/devices/pci", buf, sizeof(buf));
-    ASSERT(len > 0, "/sys/devices/pci should return data");
+    int len = vfile_read("/0/hardware/pci", buf, sizeof(buf));
+    ASSERT(len > 0, "/0/hardware/pci should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "Bus") != NULL, "pci listing should contain 'Bus' header");
     /* Mock PCI returns no devices, so just verify the header is there */
@@ -476,103 +470,83 @@ static void test_vfile_devices_pci(void) {
 static void test_vfile_write_null(void) {
     vfile_init();
     const char* data = "hello world";
-    int written = vfile_write("/dev/null", data, strlen(data));
-    ASSERT(written == (int)strlen(data), "/dev/null should accept all bytes");
+    int written = vfile_write("/0/dev/null", data, strlen(data));
+    ASSERT(written == (int)strlen(data), "/0/dev/null should accept all bytes");
     TEST_PASS();
 }
 
 static void test_vfile_null_is_writable(void) {
     vfile_init();
-    ASSERT(vfile_is_writable("/dev/null") == 1, "/dev/null should be writable");
+    ASSERT(vfile_is_writable("/0/dev/null") == 1, "/0/dev/null should be writable");
     TEST_PASS();
 }
 
 static void test_vfile_write_zero(void) {
     vfile_init();
     const char* data = "discarded data";
-    int written = vfile_write("/dev/zero", data, strlen(data));
-    ASSERT(written == (int)strlen(data), "/dev/zero should accept all bytes");
+    int written = vfile_write("/0/dev/zero", data, strlen(data));
+    ASSERT(written == (int)strlen(data), "/0/dev/zero should accept all bytes");
     TEST_PASS();
 }
 
 static void test_vfile_zero_is_writable(void) {
     vfile_init();
-    ASSERT(vfile_is_writable("/dev/zero") == 1, "/dev/zero should be writable");
+    ASSERT(vfile_is_writable("/0/dev/zero") == 1, "/0/dev/zero should be writable");
     TEST_PASS();
 }
 
 static void test_vfile_console_is_writable(void) {
     vfile_init();
-    ASSERT(vfile_is_writable("/dev/console") == 1, "/dev/console should be writable");
+    ASSERT(vfile_is_writable("/0/dev/console") == 1, "/0/dev/console should be writable");
     TEST_PASS();
 }
 
 static void test_vfile_write_console(void) {
     vfile_init();
     const char* data = "test output\n";
-    int written = vfile_write("/dev/console", data, strlen(data));
-    ASSERT(written == (int)strlen(data), "/dev/console should accept all bytes");
+    int written = vfile_write("/0/dev/console", data, strlen(data));
+    ASSERT(written == (int)strlen(data), "/0/dev/console should accept all bytes");
     TEST_PASS();
 }
 
 static void test_vfile_hostname_is_writable(void) {
     vfile_init();
-    ASSERT(vfile_is_writable("/proc/hostname") == 1, "/proc/hostname should be writable");
+    ASSERT(vfile_is_writable("/0/system/hostname") == 1, "/0/system/hostname should be writable");
     TEST_PASS();
 }
 
 static void test_vfile_write_hostname(void) {
     vfile_init();
     char buf[512];
-    int len = vfile_read("/proc/hostname", buf, sizeof(buf));
+    int len = vfile_read("/0/system/hostname", buf, sizeof(buf));
     buf[len] = 0;
     ASSERT(strstr(buf, "plan0") != NULL, "default hostname should be 'plan0'");
 
     const char* new_name = "mytesthost";
-    int written = vfile_write("/proc/hostname", new_name, strlen(new_name));
+    int written = vfile_write("/0/system/hostname", new_name, strlen(new_name));
     ASSERT(written == (int)strlen(new_name), "write should accept hostname");
 
-    len = vfile_read("/proc/hostname", buf, sizeof(buf));
+    len = vfile_read("/0/system/hostname", buf, sizeof(buf));
     buf[len] = 0;
     ASSERT(strstr(buf, "mytesthost") != NULL, "hostname should be updated");
 
-    len = vfile_read("/sys/kernel/hostname", buf, sizeof(buf));
+    len = vfile_read("/0/system/kernel/hostname", buf, sizeof(buf));
     buf[len] = 0;
-    ASSERT(strstr(buf, "mytesthost") != NULL, "/sys/kernel/hostname should mirror /proc/hostname");
-
-    TEST_PASS();
-}
-
-static void test_vfile_sys_hostname_is_writable(void) {
-    vfile_init();
-    ASSERT(vfile_is_writable("/sys/kernel/hostname") == 1, "/sys/kernel/hostname should be writable");
-    TEST_PASS();
-}
-
-static void test_vfile_write_sys_hostname(void) {
-    vfile_init();
-    const char* new_name = "sysname";
-    int written = vfile_write("/sys/kernel/hostname", new_name, strlen(new_name));
-    ASSERT(written == (int)strlen(new_name), "write should accept hostname");
-
-    char buf[512];
-    int len = vfile_read("/proc/hostname", buf, sizeof(buf));
-    buf[len] = 0;
-    ASSERT(strstr(buf, "sysname") != NULL, "/proc/hostname should reflect sys/kernel write");
+    ASSERT(strstr(buf, "mytesthost") != NULL, "/0/system/kernel/hostname should mirror 0/system/hostname");
 
     TEST_PASS();
 }
 
 static void test_vfile_readonly_rejects_write(void) {
     vfile_init();
-    ASSERT(vfile_is_writable("/proc/uptime") == 0, "/proc/uptime should not be writable");
-    ASSERT(vfile_is_writable("/proc/memory") == 0, "/proc/memory should not be writable");
-    ASSERT(vfile_is_writable("/proc/version") == 0, "/proc/version should not be writable");
-    ASSERT(vfile_is_writable("/sys/kernel/name") == 0, "/sys/kernel/name should not be writable");
-    ASSERT(vfile_is_writable("/sys/kernel/arch") == 0, "/sys/kernel/arch should not be writable");
-    ASSERT(vfile_is_writable("/sys/hardware/platform") == 0, "/sys/hardware/platform should not be writable");
+    ASSERT(vfile_is_writable("/0/system/runtime/uptime") == 0, "/0/system/runtime/uptime should not be writable");
+    ASSERT(vfile_is_writable("/0/hardware/memory/ram") == 0, "/0/hardware/memory/ram should not be writable");
+    ASSERT(vfile_is_writable("/0/system/version") == 0, "/0/system/version should not be writable");
+    ASSERT(vfile_is_writable("/0/system/kernel/name") == 0, "/0/system/kernel/name should not be writable");
+    ASSERT(vfile_is_writable("/0/system/kernel/arch") == 0, "/0/system/kernel/arch should not be writable");
+    ASSERT(vfile_is_writable("/0/hardware/platform") == 0, "/0/hardware/platform should not be writable");
 
-    int written = vfile_write("/proc/uptime", "test", 4);
+    int written = vfile_write("/0/system/runtime/uptime", "test", 4);
     ASSERT(written == -1, "write to read-only should return -1");
     TEST_PASS();
 }
@@ -587,11 +561,11 @@ static void test_vfile_write_non_virtual(void) {
 static void test_vfile_hostname_strips_newline(void) {
     vfile_init();
     const char* data = "newhost\n";
-    int written = vfile_write("/proc/hostname", data, strlen(data));
+    int written = vfile_write("/0/system/hostname", data, strlen(data));
     ASSERT(written == 7, "write should strip trailing newline and return 7");
 
     char buf[512];
-    int len = vfile_read("/proc/hostname", buf, sizeof(buf));
+    int len = vfile_read("/0/system/hostname", buf, sizeof(buf));
     buf[len] = 0;
     ASSERT(strstr(buf, "newhost") != NULL, "hostname should be 'newhost'");
     ASSERT(strstr(buf, "newhost\n\n") == NULL, "should not have double newline");
@@ -669,7 +643,7 @@ static void test_vfs_fd_unlink(void) {
     TEST_PASS();
 }
 
-/* ---- Test: /proc/self/fd introspection ---- */
+/* ---- Test: 0/system/self/fd introspection ---- */
 
 static void test_vfile_fdinfo_lists_open_fd(void) {
     vfs_init();
@@ -683,7 +657,7 @@ static void test_vfile_fdinfo_lists_open_fd(void) {
     ASSERT(fd >= 0, "vfs_open should succeed");
 
     char buf[1024];
-    int len = vfile_read("/proc/self/fdinfo", buf, sizeof(buf));
+    int len = vfile_read("/0/system/self/fdinfo", buf, sizeof(buf));
     ASSERT(len > 0, "fdinfo should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "fd  Type") != NULL, "fdinfo should have a header");
@@ -702,8 +676,8 @@ static void test_vfile_fd_dir_lists_fd(void) {
     ASSERT(fd >= 0, "vfs_open should succeed");
 
     dir_entry_count = 0;
-    int r = vfile_list("/proc/self/fd", count_entries);
-    ASSERT(r == 0, "/proc/self/fd should be a virtual directory");
+    int r = vfile_list("/0/system/self/fd", count_entries);
+    ASSERT(r == 0, "/0/system/self/fd should be a virtual directory");
     ASSERT(dir_entry_count >= 1, "fd dir should list at least the open fd");
 
     vfs_close(fd);
@@ -719,11 +693,11 @@ static void test_vfile_fd_read_through_descriptor(void) {
     ASSERT(fd >= 0, "vfs_open should succeed");
 
     char path[32];
-    snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
+    snprintf(path, sizeof(path), "/0/system/self/fd/%d", fd);
     char buf[64];
     memset(buf, 0, sizeof(buf));
     int len = vfile_read(path, buf, sizeof(buf));
-    ASSERT(len > 0, "read through /proc/self/fd/N should return data");
+    ASSERT(len > 0, "read through 0/system/self/fd/N should return data");
     ASSERT(strcmp(buf, "through-fd") == 0, "data should read through the fd");
 
     vfs_close(fd);
@@ -736,7 +710,7 @@ static void test_vfile_fd_pipe_visible_in_fdinfo(void) {
     ASSERT(vfs_pipe(fds) == 0, "vfs_pipe should succeed");
 
     char buf[1024];
-    int len = vfile_read("/proc/self/fdinfo", buf, sizeof(buf));
+    int len = vfile_read("/0/system/self/fdinfo", buf, sizeof(buf));
     ASSERT(len > 0, "fdinfo should return data");
     buf[len] = 0;
     ASSERT(strstr(buf, "pipe-r") != NULL, "fdinfo should list the pipe read end");
@@ -750,11 +724,11 @@ static void test_vfile_fd_pipe_visible_in_fdinfo(void) {
 static void test_vfile_fd_bad_path(void) {
     vfs_init();
     char buf[32];
-    ASSERT(vfile_read("/proc/self/fd/notanumber", buf, sizeof(buf)) == -1,
+    ASSERT(vfile_read("/0/system/self/fd/notanumber", buf, sizeof(buf)) == -1,
            "non-numeric fd path should fail");
-    ASSERT(vfile_read("/proc/self/fd/", buf, sizeof(buf)) == -1,
+    ASSERT(vfile_read("/0/system/self/fd/", buf, sizeof(buf)) == -1,
            "empty fd number should fail");
-    ASSERT(vfile_read("/proc/self/fd/99", buf, sizeof(buf)) == -1,
+    ASSERT(vfile_read("/0/system/self/fd/99", buf, sizeof(buf)) == -1,
            "unopened fd should fail");
     TEST_PASS();
 }
@@ -967,8 +941,8 @@ static void test_vfs_mount_path_dispatch(void) {
     vfs_close(fd2);
 
     /* A path under /proc routes to the vfile adapter. */
-    int vfd = vfs_open("/proc/uptime", VFS_O_RDONLY);
-    ASSERT(vfd >= 0, "/proc/uptime should open through the vfile adapter");
+    int vfd = vfs_open("/0/system/runtime/uptime", VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "/0/system/runtime/uptime should open through the vfile adapter");
     vfs_close(vfd);
 
     /* /proc itself is a directory — not openable as a file. */
@@ -980,8 +954,8 @@ static void test_vfs_open_virtual_file(void) {
     vfs_init();
     vfile_init();
 
-    int fd = vfs_open("/proc/uptime", VFS_O_RDONLY);
-    ASSERT(fd >= 0, "vfs_open(/proc/uptime) should succeed");
+    int fd = vfs_open("/0/system/runtime/uptime", VFS_O_RDONLY);
+    ASSERT(fd >= 0, "vfs_open(0/system/runtime/uptime) should succeed");
 
     char buf[256];
     memset(buf, 0, sizeof(buf));
@@ -1004,7 +978,7 @@ static void test_vfs_open_virtual_offset_read(void) {
     vfs_init();
     vfile_init();
 
-    int fd = vfs_open("/proc/uptime", VFS_O_RDONLY);
+    int fd = vfs_open("/0/system/runtime/uptime", VFS_O_RDONLY);
     ASSERT(fd >= 0, "vfs_open should succeed");
 
     /* Read in two halves; the second half continues from the offset. */
@@ -1025,9 +999,9 @@ static void test_vfs_write_virtual_file(void) {
     vfs_init();
     vfile_init();
 
-    /* /proc/hostname is writable — write through the VFS fd layer. */
-    int fd = vfs_open("/proc/hostname", VFS_O_WRONLY);
-    ASSERT(fd >= 0, "vfs_open(/proc/hostname, O_WRONLY) should succeed");
+    /* 0/system/hostname is writable — write through the VFS fd layer. */
+    int fd = vfs_open("/0/system/hostname", VFS_O_WRONLY);
+    ASSERT(fd >= 0, "vfs_open(0/system/hostname, O_WRONLY) should succeed");
     int w = vfs_write(fd, "vfs-node", 8);
     ASSERT(w == 8, "vfs_write should accept 8 bytes");
     vfs_close(fd);
@@ -1035,13 +1009,13 @@ static void test_vfs_write_virtual_file(void) {
     /* Read back through the direct vfile API to confirm the write landed. */
     char buf[64];
     memset(buf, 0, sizeof(buf));
-    int n = vfile_read("/proc/hostname", buf, sizeof(buf) - 1);
+    int n = vfile_read("/0/system/hostname", buf, sizeof(buf) - 1);
     ASSERT(n > 0, "hostname should be readable");
     buf[n] = 0;
     ASSERT(strstr(buf, "vfs-node") != NULL, "hostname should reflect the VFS write");
 
     /* Restore the default so other tests are unaffected. */
-    int rfd = vfs_open("/proc/hostname", VFS_O_WRONLY);
+    int rfd = vfs_open("/0/system/hostname", VFS_O_WRONLY);
     ASSERT(rfd >= 0, "reopen for restore");
     vfs_write(rfd, "plan0", 5);
     vfs_close(rfd);
@@ -1054,7 +1028,7 @@ static void test_vfs_read_only_virtual_denied(void) {
 
     /* Open a read-only virtual file for writing: the adapter rejects the
      * write through vfile_write (no write callback registered). */
-    int fd = vfs_open("/proc/uptime", VFS_O_WRONLY);
+    int fd = vfs_open("/0/system/runtime/uptime", VFS_O_WRONLY);
     ASSERT(fd >= 0, "vfs_open with O_WRONLY should return a slot");
     int w = vfs_write(fd, "x", 1);
     ASSERT(w < 0, "write to read-only virtual file should fail");
@@ -1067,14 +1041,14 @@ static void test_vfs_open_virtual_missing(void) {
     vfile_init();
 
     ASSERT(vfs_open("/proc/definitely-not-real", VFS_O_RDONLY) == -1,
-           "unknown virtual file should not open");
-    ASSERT(vfs_open("/sys/definitely-not-real", VFS_O_RDONLY) == -1,
-           "unknown /sys file should not open");
+           "legacy /proc is gone and must not open");
+    ASSERT(vfs_open("/0/system/definitely-not-real", VFS_O_RDONLY) == -1,
+           "unknown system file should not open");
     ASSERT(vfs_open("/dev/definitely-not-real", VFS_O_RDONLY) == -1,
            "unknown /dev file should not open");
-    /* Creation is not allowed in virtual namespaces. */
-    ASSERT(vfs_open("/proc/newfile", VFS_O_CREAT | VFS_O_RDWR) == -1,
-           "O_CREAT in /proc should fail");
+    /* Creation is not allowed in the namespace tree. */
+    ASSERT(vfs_open("/0/system/newfile", VFS_O_CREAT | VFS_O_RDWR) == -1,
+           "O_CREAT under /0/system should fail");
     TEST_PASS();
 }
 
@@ -1084,7 +1058,7 @@ static void test_vfs_open_virtual_dynamic_fd(void) {
     ramfs_init();
 
     /* Open a ramfs file so fd 0 is populated, then read it through the
-     * dynamic virtual path /proc/self/fd/0 via the VFS adapter. */
+     * dynamic virtual path 0/system/self/fd/0 via the VFS adapter. */
     int rfd = ramfs_create("dyn.txt");
     ASSERT(rfd >= 0, "ramfs create should succeed");
     const char* payload = "dynamic-fd-payload";
@@ -1096,9 +1070,9 @@ static void test_vfs_open_virtual_dynamic_fd(void) {
     /* The ramfs file is the first free fd after the standard 0/1/2. */
     ASSERT(fd >= 3, "std fds 0/1/2 should precede the file fd");
     char dynpath[32];
-    snprintf(dynpath, sizeof(dynpath), "/proc/self/fd/%d", fd);
+    snprintf(dynpath, sizeof(dynpath), "/0/system/self/fd/%d", fd);
     int vfd = vfs_open(dynpath, VFS_O_RDONLY);
-    ASSERT(vfd >= 0, "dynamic /proc/self/fd/N should open via the adapter");
+    ASSERT(vfd >= 0, "dynamic 0/system/self/fd/N should open via the adapter");
     char buf[64];
     memset(buf, 0, sizeof(buf));
     int n = vfs_read(vfd, buf, sizeof(buf) - 1);
@@ -1309,8 +1283,8 @@ static void test_fs_vfs_mount_precedence(void) {
     vfs_mount("/", &fs_vfs_ops);
 
     /* Longest-prefix: /proc routes to vfile, everything else to fs. */
-    int vfd = vfs_open("/proc/uptime", VFS_O_RDONLY);
-    ASSERT(vfd >= 0, "/proc/uptime should still route to the vfile adapter");
+    int vfd = vfs_open("/0/system/runtime/uptime", VFS_O_RDONLY);
+    ASSERT(vfd >= 0, "/0/system/runtime/uptime should still route to the vfile adapter");
     vfs_close(vfd);
 
     int fd = vfs_open("/real.txt", VFS_O_CREAT | VFS_O_WRONLY);
@@ -1431,7 +1405,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfs_fd_write_roundtrip", test_vfs_fd_write_roundtrip);
     test_suite_add_test(&suite, "vfs_fd_unlink", test_vfs_fd_unlink);
 
-    /* /proc/self/fd introspection tests */
+    /* 0/system/self/fd introspection tests */
     test_suite_add_test(&suite, "vfile_fdinfo_lists_open_fd", test_vfile_fdinfo_lists_open_fd);
     test_suite_add_test(&suite, "vfile_fd_dir_lists_fd", test_vfile_fd_dir_lists_fd);
     test_suite_add_test(&suite, "vfile_fd_read_through_descriptor", test_vfile_fd_read_through_descriptor);
@@ -1476,7 +1450,7 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "std_dup2_redirects_stdout", test_std_dup2_redirects_stdout);
     test_suite_add_test(&suite, "std_fds_survive_process_table", test_std_fds_survive_process_table);
 
-    /* /proc/self tests */
+    /* 0/system/self tests */
     test_suite_add_test(&suite, "vfile_self_pid", test_vfile_self_pid);
     test_suite_add_test(&suite, "vfile_self_name", test_vfile_self_name);
     test_suite_add_test(&suite, "vfile_self_status", test_vfile_self_status);
@@ -1503,8 +1477,6 @@ test_suite_t* create_vfile_test_suite(void) {
     test_suite_add_test(&suite, "vfile_write_console", test_vfile_write_console);
     test_suite_add_test(&suite, "vfile_hostname_is_writable", test_vfile_hostname_is_writable);
     test_suite_add_test(&suite, "vfile_write_hostname", test_vfile_write_hostname);
-    test_suite_add_test(&suite, "vfile_sys_hostname_is_writable", test_vfile_sys_hostname_is_writable);
-    test_suite_add_test(&suite, "vfile_write_sys_hostname", test_vfile_write_sys_hostname);
     test_suite_add_test(&suite, "vfile_readonly_rejects_write", test_vfile_readonly_rejects_write);
     test_suite_add_test(&suite, "vfile_write_non_virtual", test_vfile_write_non_virtual);
     test_suite_add_test(&suite, "vfile_hostname_strips_newline", test_vfile_hostname_strips_newline);

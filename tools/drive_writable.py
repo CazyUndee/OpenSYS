@@ -70,29 +70,29 @@ try:
 
     commands = [
         # Read-only resources
-        "read /proc/uptime",
-        "read /proc/version",
-        "read /proc/hostname",
-        "read /sys/kernel/arch",
-        "read /proc/stat",
-        "read /proc/interrupts",
+        "read 0/system/runtime/uptime",
+        "read 0/system/version",
+        "read 0/system/hostname",
+        "read 0/system/kernel/arch",
+        "read 0/system/stat",
+        "read 0/system/interrupts",
         "ls /dev",
 
-        # Writable: /dev/null
-        "write /dev/null hello world",
-        "read /dev/null",
+        # Writable: 0/dev/null
+        "write 0/dev/null hello world",
+        "read 0/dev/null",
 
-        # Writable: /proc/hostname
-        "write /proc/hostname mytesthost",
-        "read /proc/hostname",
-        "read /sys/kernel/hostname",
+        # Writable: 0/system/hostname
+        "write 0/system/hostname mytesthost",
+        "read 0/system/hostname",
+        "read 0/system/kernel/hostname",
 
         # Restore hostname
-        "write /proc/hostname plan0",
-        "read /proc/hostname",
+        "write 0/system/hostname plan0",
+        "read 0/system/hostname",
 
-        # Writable: /dev/console
-        "write /dev/console hello from console",
+        # Writable: 0/dev/console
+        "write 0/dev/console hello from console",
     ]
 
     for cmd in commands:
@@ -117,8 +117,8 @@ try:
         ("Hostname restore", "plan0" in log),
         ("Stat content", "cpu " in log),
         ("Interrupts content", "IRQ" in log),
-        ("/dev/null write", "Wrote 11 bytes to /dev/null" in log),
-        ("/dev/zero listed", "zero" in log),
+        ("0/dev/null write", "Wrote 11 bytes to 0/dev/null" in log),
+        ("0/dev/zero listed", "zero" in log),
         ("Sys hostname mirror", "sys/kernel/hostname" in log),
     ]
     all_pass = True

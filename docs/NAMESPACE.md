@@ -285,11 +285,17 @@ Audited current state (2026-08-25):
 | Current | Nature | Target under `0/` |
 |---|---|---|
 | `/` (VFS root mount) | whole-disk fs.c via fs_vfs_ops | **DONE**: with a GPT present the fs binds to `partitions/1` via the volume layer (`volume_use_partition`); all fs block I/O offsets from the partition start and format size clamps to the volume. Without disk/GPT, legacy behavior. Shell paths unchanged; namespace-level volume addressing (`ls 0/hardware/storage/...`) is a later slice |
-| `/proc/*` | vfile registry (Unix proc) | `0/system/*` (uptime→runtime/uptime, processes, mounts, heap, hostname…) |
-| `/sys/kernel/*` | vfile registry | `0/system/kernel/*` |
-| `/sys/hardware/platform`, `/sys/devices/pci` | vfile registry | `0/hardware/platform`, `0/hardware/pci` |
-| `/dev/null|zero|console` | vfile rw shims | `0/dev/*` |
+| `/proc/*` | vfile registry (Unix proc) | **DONE — removed**: resources re-registered canonically (`0/system/*`, content under `0/hardware/*`); legacy spellings deleted from the registry, the shell, tests, and tooling |
+| `/sys/kernel/*` | vfile registry | **DONE — removed**: `0/system/kernel/*`; hostname deduplicated into the single `0/system/hostname` resource |
+| `/sys/hardware/platform`, `/sys/devices/pci` | vfile registry | **DONE — removed**: `0/hardware/platform`, `0/hardware/pci` |
+| `/dev/null|zero|console` | vfile rw shims | **DONE — removed**: `0/dev/null`, `0/dev/zero`, `0/dev/console` |
 | drive-letter thinking | none present | none introduced |
+
+Migration COMPLETE for the virtual trees: there is exactly one namespace.
+Internally the VFS mounts the registry at `/0` (a plumbing prefix users
+never type); `ns_to_fs_path()` maps user-facing `0/X` → internal `/0/X`
+and volume paths to their bound volume. Unix-style paths now fail with
+"not found"/parse errors by design.
 
 Migration rules:
 

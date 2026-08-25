@@ -4,7 +4,8 @@
  * Copyright (C) 2026 CazyUndee
  * SPDX-License-Identifier: AGPL-3.0
  *
- * Implements virtual files under /proc, /sys, and /dev that are
+ * Implements the Plan0 resource namespace content under 0/ (system,
+ * hardware, dev) that is
  * generated on read (or handled on write) and consume no disk storage.
  * Each resource has a read callback that fills a caller-provided buffer,
  * optionally a write callback for writable resources, and each directory
@@ -30,7 +31,7 @@
 static vfile_entry_t entries[VFILE_MAX_ENTRIES];
 static int entry_count = 0;
 
-/* Mutable hostname (shared by /proc/hostname and /sys/kernel/hostname) */
+/* Mutable hostname (shared by 0/system/hostname and 0/system/hostname) */
 static char hostname_buf[64] = "plan0";
 
 /* Simple interrupt counters — incremented by irq_handler via
@@ -105,7 +106,7 @@ static int append_hex(char* buf, size_t max, uint32_t n) {
  * Virtual file content generators (read callbacks)
  * ================================================================ */
 
-/* /proc/uptime — seconds since boot */
+/* 0/system/runtime/uptime - seconds since boot */
 static int gen_uptime(char* buf, size_t max) {
     uint64_t ticks = timer_get_ticks();
     uint64_t seconds = ticks / 1000;
@@ -131,7 +132,7 @@ static int gen_uptime(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/memory — RAM stats */
+/* 0/hardware/memory/ram - RAM stats */
 static int gen_memory(char* buf, size_t max) {
     uint64_t total = pmm_get_total();
     uint64_t free  = pmm_get_free();
@@ -158,7 +159,7 @@ static int gen_memory(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/cpu — CPU identification via CPUID */
+/* 0/hardware/cpu — CPU identification via CPUID */
 static int gen_cpu(char* buf, size_t max) {
     uint32_t eax, ebx, ecx, edx;
     int pos = 0;
@@ -206,7 +207,7 @@ static int gen_cpu(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/processes — process table */
+/* 0/system/processes — process table */
 static int gen_processes(char* buf, size_t max) {
     int pos = 0;
 
@@ -233,7 +234,7 @@ static int gen_processes(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/datetime — current date and time */
+/* 0/system/time — current date and time */
 static int gen_datetime(char* buf, size_t max) {
     rtc_time_t t;
     rtc_read_time(&t);
@@ -265,14 +266,14 @@ static int gen_datetime(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/version — OS version (uses version.h) */
+/* 0/system/version — OS version (uses version.h) */
 static int gen_version(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, PLAN0_FULL_NAME "\n");
     return pos;
 }
 
-/* /proc/hostname — system hostname (read/write) */
+/* 0/system/hostname — system hostname (read/write) */
 static int gen_hostname(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, hostname_buf);
@@ -289,7 +290,7 @@ static int write_hostname(const char* data, size_t len) {
     return n;
 }
 
-/* /proc/stat — CPU statistics */
+/* 0/system/stat — CPU statistics */
 static int gen_stat(char* buf, size_t max) {
     uint64_t ticks = timer_get_ticks();
     int pos = 0;
@@ -327,7 +328,7 @@ static int gen_stat(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/heap — kernel heap statistics and integrity status */
+/* 0/system/heap — kernel heap statistics and integrity status */
 static int gen_heap(char* buf, size_t max) {
     kheap_stats_t st;
     kheap_get_stats(&st);
@@ -375,7 +376,7 @@ static int gen_heap(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/interrupts — per-IRQ counts */
+/* 0/system/interrupts — per-IRQ counts */
 static const char* irq_names[] = {
     "timer", "keyboard", "cascade", "serial2", "serial1",
     "parallel2", "floppy", "parallel1", "rtc", "free",
@@ -401,7 +402,7 @@ static int gen_interrupts(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/mounts — filesystem mount table (from the live VFS mount table) */
+/* 0/system/mounts — filesystem mount table (from the live VFS mount table) */
 static int gen_mounts(char* buf, size_t max) {
     int pos = 0;
 
@@ -434,7 +435,7 @@ static int gen_mounts(char* buf, size_t max) {
 }
 
 /* ================================================================
- * /proc/self/ — per-process information (current process)
+ * 0/system/self/ — per-process information (current process)
  * ================================================================ */
 
 static int gen_self_pid(char* buf, size_t max) {
@@ -525,7 +526,7 @@ static void list_proc_self(vfile_dir_emit_fn emit) {
 }
 
 /* ================================================================
- * /proc/self/fd — open file descriptors of the current context
+ * 0/system/self/fd — open file descriptors of the current context
  * ================================================================ */
 
 static const char* fd_type_name(int type) {
@@ -560,7 +561,7 @@ static void list_self_fd(vfile_dir_emit_fn emit) {
     }
 }
 
-/* /proc/self/fdinfo — table of open fds (number, type, size) */
+/* 0/system/self/fdinfo — table of open fds (number, type, size) */
 static int gen_self_fdinfo(char* buf, size_t max) {
     int pos = 0;
 
@@ -587,10 +588,10 @@ static int gen_self_fdinfo(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/self/fd/N — reads through the open descriptor N */
+/* 0/system/self/fd/N — reads through the open descriptor N */
 static int gen_self_fd_path(char* buf, size_t max, const char* path) {
-    /* Path is /proc/self/fd/<number> */
-    const char* num = path + k_strlen("/proc/self/fd/");
+    /* Path is 0/system/self/fd/<number> */
+    const char* num = path + k_strlen("/0/system/self/fd/");
     int fd = 0;
     int started = 0;
     while (*num >= '0' && *num <= '9') {
@@ -670,12 +671,8 @@ static int gen_devices(char* buf, size_t max) {
     return pos;
 }
 
-static void list_sys_devices(vfile_dir_emit_fn emit) {
-    emit("pci", 0, 0);
-}
-
 /* ================================================================
- * /sys/kernel/version (uses version.h)
+ * 0/system/kernel/version (uses version.h)
  * ================================================================ */
 
 static int gen_kernel_version(char* buf, size_t max) {
@@ -684,30 +681,22 @@ static int gen_kernel_version(char* buf, size_t max) {
     return pos;
 }
 
-/* /sys/kernel/name (uses version.h) */
+/* 0/system/kernel/name (uses version.h) */
 static int gen_kernel_name(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, PLAN0_NAME "\n");
     return pos;
 }
 
-/* /sys/kernel/arch */
+/* 0/system/kernel/arch */
 static int gen_kernel_arch(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, PLAN0_ARCH "\n");
     return pos;
 }
 
-/* /sys/kernel/hostname — alias for /proc/hostname (read/write) */
-static int gen_sys_hostname(char* buf, size_t max) {
-    return gen_hostname(buf, max);
-}
-
-static int write_sys_hostname(const char* data, size_t len) {
-    return write_hostname(data, len);
-}
-
-/* /proc/cpuid — raw CPUID leaf 0 */
+/* 0/system/hostname — alias for 0/system/hostname (read/write) */
+/* 0/hardware/cpu-id — raw CPUID leaf 0 */
 static int gen_cpuid(char* buf, size_t max) {
     uint32_t eax, ebx, ecx, edx;
     int pos = 0;
@@ -729,7 +718,7 @@ static int gen_cpuid(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/meminfo — detailed memory map */
+/* 0/hardware/memory/info — detailed memory map */
 static int gen_meminfo(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, "MemTotal:  ");
@@ -747,7 +736,7 @@ static int gen_meminfo(char* buf, size_t max) {
     return pos;
 }
 
-/* /proc/timer — high-resolution tick count */
+/* 0/system/timer — high-resolution tick count */
 static int gen_timer(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, "ticks: ");
@@ -758,7 +747,7 @@ static int gen_timer(char* buf, size_t max) {
     return pos;
 }
 
-/* /sys/hardware/platform — hardware platform info */
+/* 0/hardware/platform — hardware platform info */
 static int gen_platform(char* buf, size_t max) {
     int pos = 0;
     pos += append_str(buf + pos, max - (size_t)pos, "Platform:   PC/AT compatible\n");
@@ -793,29 +782,40 @@ static void list_vfile_dir(const char* prefix, vfile_dir_emit_fn emit) {
 
 /* / — root directory: lists top-level virtual directories */
 static void list_root(vfile_dir_emit_fn emit) {
-    emit("proc", 1, 0);
-    emit("sys", 1, 0);
+    emit("0", 1, 0);
+}
+
+/* 0/ - namespace root */
+static void list_ns_root(vfile_dir_emit_fn emit) {
+    emit("system", 1, 0);
+    emit("hardware", 1, 0);
     emit("dev", 1, 0);
 }
 
-static void list_proc(vfile_dir_emit_fn emit) {
-    list_vfile_dir("/proc/", emit);
-    /* /proc/self is a directory, not a file — emit it explicitly */
+static void list_system(vfile_dir_emit_fn emit) {
+    list_vfile_dir("/0/system/", emit);
+    /* directories are not picked up by the file-prefix scan */
+    emit("kernel", 1, 0);
+    emit("runtime", 1, 0);
     emit("self", 1, 0);
 }
 
-static void list_sys(vfile_dir_emit_fn emit) {
-    emit("kernel", 1, 0);
-    emit("hardware", 1, 0);
-    emit("devices", 1, 0);
-}
-
 static void list_sys_kernel(vfile_dir_emit_fn emit) {
-    list_vfile_dir("/sys/kernel/", emit);
+    list_vfile_dir("/0/system/kernel/", emit);
 }
 
-static void list_sys_hardware(vfile_dir_emit_fn emit) {
-    list_vfile_dir("/sys/hardware/", emit);
+static void list_sys_runtime(vfile_dir_emit_fn emit) {
+    list_vfile_dir("/0/system/runtime/", emit);
+}
+
+static void list_hardware(vfile_dir_emit_fn emit) {
+    list_vfile_dir("/0/hardware/", emit);
+    /* memory has files below it; emit the directory explicitly */
+    emit("memory", 1, 0);
+}
+
+static void list_hw_memory(vfile_dir_emit_fn emit) {
+    list_vfile_dir("/0/hardware/memory/", emit);
 }
 
 static void list_dev(vfile_dir_emit_fn emit) {
@@ -825,7 +825,7 @@ static void list_dev(vfile_dir_emit_fn emit) {
 }
 
 /* ================================================================
- * /dev/null — discard any write, read returns 0 bytes
+ * 0/dev/null — discard any write, read returns 0 bytes
  * ================================================================ */
 
 static int gen_null(char* buf, size_t max) {
@@ -839,7 +839,7 @@ static int write_null(const char* data, size_t len) {
 }
 
 /* ================================================================
- * /dev/zero — read returns NUL bytes, write discards
+ * 0/dev/zero — read returns NUL bytes, write discards
  * ================================================================ */
 
 static int gen_zero(char* buf, size_t max) {
@@ -854,7 +854,7 @@ static int write_zero(const char* data, size_t len) {
 }
 
 /* ================================================================
- * /dev/console — write goes to terminal (VGA + serial)
+ * 0/dev/console — write goes to terminal (VGA + serial)
  * ================================================================ */
 
 static int gen_console(char* buf, size_t max) {
@@ -913,67 +913,64 @@ void vfile_init(void) {
 
     for (int i = 0; i < VFILE_NUM_IRQS; i++) irq_counts[i] = 0;
 
-    /* Register the virtual namespaces in the live VFS mount table so
-     * /proc/mounts reflects the real kernel state. The vfile layer has
-     * no backing ops of its own — entries are resolved by the vfile
-     * registry — so the mount ops pointer is NULL (path-only entry). */
-    vfs_mount("/proc", 0);
-    vfs_mount("/sys", 0);
-    vfs_mount("/dev", 0);
+    /* Register the namespace resource tree in the live VFS mount table so
+     * /0-system resources are reachable through the fd layer. The vfile
+     * layer has no backing ops of its own — entries are resolved by the
+     * vfile registry — so the mount ops pointer is NULL (path-only entry;
+     * find_ops routes NULL-op mounts to the vfile adapter). */
+    vfs_mount("/0", 0);
 
     /* Directories */
     reg_dir("/",             list_root);
-    reg_dir("/proc",         list_proc);
-    reg_dir("/proc/self",    list_proc_self);
-    reg_dir("/proc/self/fd", list_self_fd);
-    reg_dir("/sys",          list_sys);
-    reg_dir("/sys/kernel",   list_sys_kernel);
-    reg_dir("/sys/hardware", list_sys_hardware);
-    reg_dir("/sys/devices",  list_sys_devices);
-    reg_dir("/dev",          list_dev);
+    reg_dir("/0",            list_ns_root);
+    reg_dir("/0/system",     list_system);
+    reg_dir("/0/system/kernel",  list_sys_kernel);
+    reg_dir("/0/system/runtime", list_sys_runtime);
+    reg_dir("/0/system/self",    list_proc_self);
+    reg_dir("/0/system/self/fd", list_self_fd);
+    reg_dir("/0/hardware",       list_hardware);
+    reg_dir("/0/hardware/memory", list_hw_memory);
+    reg_dir("/0/dev",        list_dev);
 
-    /* /proc files (read-only) */
-    reg_file("/proc/uptime",     gen_uptime);
-    reg_file("/proc/memory",     gen_memory);
-    reg_file("/proc/meminfo",    gen_meminfo);
-    reg_file("/proc/cpu",        gen_cpu);
-    reg_file("/proc/cpuid",      gen_cpuid);
-    reg_file("/proc/processes",  gen_processes);
-    reg_file("/proc/datetime",   gen_datetime);
-    reg_file("/proc/version",    gen_version);
-    reg_file("/proc/timer",      gen_timer);
-    reg_file("/proc/stat",       gen_stat);
-    reg_file("/proc/interrupts", gen_interrupts);
-    reg_file("/proc/mounts",     gen_mounts);
-    reg_file("/proc/heap",       gen_heap);
+    /* 0/system files (read-only) */
+    reg_file("/0/system/processes",  gen_processes);
+    reg_file("/0/system/time",       gen_datetime);
+    reg_file("/0/system/version",    gen_version);
+    reg_file("/0/system/timer",      gen_timer);
+    reg_file("/0/system/stat",       gen_stat);
+    reg_file("/0/system/interrupts", gen_interrupts);
+    reg_file("/0/system/mounts",     gen_mounts);
+    reg_file("/0/system/heap",       gen_heap);
 
-    /* /proc files (read/write) */
-    reg_file_rw("/proc/hostname", gen_hostname, write_hostname);
+    /* 0/system files (read/write) */
+    reg_file_rw("/0/system/hostname", gen_hostname, write_hostname);
 
-    /* /proc/self files */
-    reg_file("/proc/self/pid",    gen_self_pid);
-    reg_file("/proc/self/name",   gen_self_name);
-    reg_file("/proc/self/status", gen_self_status);
-    reg_file("/proc/self/fdinfo", gen_self_fdinfo);
+    /* 0/system/kernel */
+    reg_file("/0/system/kernel/name",    gen_kernel_name);
+    reg_file("/0/system/kernel/version", gen_kernel_version);
+    reg_file("/0/system/kernel/arch",    gen_kernel_arch);
 
-    /* /sys/kernel files (read-only) */
-    reg_file("/sys/kernel/name",    gen_kernel_name);
-    reg_file("/sys/kernel/version", gen_kernel_version);
-    reg_file("/sys/kernel/arch",    gen_kernel_arch);
+    /* 0/system/runtime */
+    reg_file("/0/system/runtime/uptime", gen_uptime);
 
-    /* /sys/kernel files (read/write) */
-    reg_file_rw("/sys/kernel/hostname", gen_sys_hostname, write_sys_hostname);
+    /* 0/system/self */
+    reg_file("/0/system/self/pid",    gen_self_pid);
+    reg_file("/0/system/self/name",   gen_self_name);
+    reg_file("/0/system/self/status", gen_self_status);
+    reg_file("/0/system/self/fdinfo", gen_self_fdinfo);
 
-    /* /sys/hardware files */
-    reg_file("/sys/hardware/platform", gen_platform);
+    /* 0/hardware content (read-only introspection) */
+    reg_file("/0/hardware/memory/ram",  gen_memory);
+    reg_file("/0/hardware/memory/info", gen_meminfo);
+    reg_file("/0/hardware/cpu",         gen_cpu);
+    reg_file("/0/hardware/cpu-id",      gen_cpuid);
+    reg_file("/0/hardware/platform",    gen_platform);
+    reg_file("/0/hardware/pci",         gen_devices);
 
-    /* /sys/devices files */
-    reg_file("/sys/devices/pci", gen_devices);
-
-    /* /dev files */
-    reg_file_rw("/dev/null",    gen_null,    write_null);
-    reg_file_rw("/dev/zero",    gen_zero,    write_zero);
-    reg_file_rw("/dev/console", gen_console, write_console);
+    /* 0/dev shims (read/write) */
+    reg_file_rw("/0/dev/null",    gen_null,    write_null);
+    reg_file_rw("/0/dev/zero",    gen_zero,    write_zero);
+    reg_file_rw("/0/dev/console", gen_console, write_console);
 }
 
 /* ================================================================
@@ -992,8 +989,8 @@ int vfile_exists(const char* path) {
     for (int i = 0; i < entry_count; i++) {
         if (!entries[i].is_dir && k_strcmp(entries[i].path, path) == 0) return 1;
     }
-    /* Dynamic virtual files: /proc/self/fd/<N> reads through descriptor N. */
-    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) return 1;
+    /* Dynamic virtual files: 0/system/self/fd/<N> reads through descriptor N. */
+    if (k_strncmp(path, "/0/system/self/fd/", k_strlen("/0/system/self/fd/")) == 0) return 1;
     return 0;
 }
 
@@ -1007,9 +1004,9 @@ int vfile_read(const char* path, char* buf, size_t max_len) {
         }
     }
 
-    /* Dynamic virtual files: /proc/self/fd/<N> reads through the open
+    /* Dynamic virtual files: 0/system/self/fd/<N> reads through the open
      * descriptor N of the current context. */
-    if (k_strncmp(path, "/proc/self/fd/", k_strlen("/proc/self/fd/")) == 0) {
+    if (k_strncmp(path, "/0/system/self/fd/", k_strlen("/0/system/self/fd/")) == 0) {
         return gen_self_fd_path(buf, max_len, path);
     }
 

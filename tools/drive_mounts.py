@@ -65,7 +65,7 @@ try:
 
     commands = [
         "mount",
-        "read /proc/mounts",
+        "read 0/system/mounts",
     ]
 
     for cmd in commands:

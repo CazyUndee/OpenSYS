@@ -115,7 +115,7 @@ send_keys(mon, "ps")
 time.sleep(1)
 send_keys(mon, "echo hello from process shell")
 time.sleep(1)
-send_keys(mon, "read /proc/uptime")
+send_keys(mon, "read 0/system/runtime/uptime")
 time.sleep(1)
 send_keys(mon, "ls /proc")
 time.sleep(1)
@@ -127,7 +127,7 @@ for line in log.strip().split("\n")[-40:]:
 
 print("\n=== Command Response Checks ===")
 results.append(check("hello from process shell", log, "echo works in shell process"))
-results.append(check("Uptime:", log, "read /proc/uptime works"))
+results.append(check("Uptime:", log, "read 0/system/runtime/uptime works"))
 results.append(check("uptime", log, "ls /proc shows uptime"))
 results.append(check("hostname", log, "ls /proc shows hostname"))
 

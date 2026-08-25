@@ -81,8 +81,8 @@ try:
         "read listing.txt",
         "echo second line >> out.txt",
         "read out.txt",
-        "echo direct > /dev/null",
-        "read /dev/null",
+        "echo direct > 0/dev/null",
+        "read 0/dev/null",
     ]
 
     for cmd in commands:
@@ -110,7 +110,7 @@ try:
         ("append did not truncate (both lines in file)", "hello world" in log and "second line" in log),
         ("append preserved both lines", "hello world" in log and "second line" in log),
         ("no stray error in appended file", "Error: redirection needs a target file" not in log.split("echo second line >> out.txt")[1].split("echo direct")[0]),
-        ("redirect to /dev/null", "Redirected 9 bytes to /dev/null" in log),
+        ("redirect to 0/dev/null", "Redirected 9 bytes to 0/dev/null" in log),
     ]
     all_pass = True
     for name, result in checks:

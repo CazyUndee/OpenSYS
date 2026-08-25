@@ -8,7 +8,7 @@
  *
  * One namespace addresses every resource: local files, devices,
  * partitions, memory, and (future) network domains. Paths start with a
- * single decimal digit — the resource domain root (`0/` = this machine).
+ * single decimal digit - the resource domain root (`0/` = this machine).
  * Resolution is table-driven; backends register capability, never path
  * strings. Short aliases are pure renames that expand to canonical paths
  * BEFORE classification, so both spellings resolve to one resource.
@@ -26,14 +26,19 @@
  * resource kind means adding a table row, not touching resolvers. */
 typedef enum {
     NS_RESOURCE_NONE = 0,
-    NS_ROOT,             /* 0                                 — machine root    */
-    NS_STORAGE_DEVICE,   /* 0/hardware/storage/{hdd,ssd}      — block device    */
-    NS_PARTITION,        /* <device>/partitions/<n>           — fs-capable range*/
-    NS_PARTITIONS_DIR,   /* <device>/partitions               — topology listing*/
-    NS_MEMORY_RAM,       /* 0/hardware/memory/ram             — RAM introspection*/
-    NS_CPU,              /* 0/hardware/cpu                    — cpu introspection */
-    NS_HARDWARE_DIR,     /* 0/hardware, .../storage           — structural dirs  */
-    NS_USER_STORE,       /* 0/user/...                        — logical user root*/
+    NS_ROOT,             /* 0                                 - machine root    */
+    NS_STORAGE_DEVICE,   /* 0/hardware/storage/HDD_OR_SSD      - block device    */
+    NS_PARTITION,        /* DEVICE/partitions/N/...       - fs-capable range*/
+    NS_PARTITIONS_DIR,   /* DEVICE/partitions               - topology listing*/
+    NS_MEMORY_RAM,       /* 0/hardware/memory/ram             - RAM introspection*/
+    NS_CPU,              /* 0/hardware/cpu                    - cpu introspection */
+    NS_HWINFO,           /* 0/hardware/platform|pci|cpu-id|memory/info        */
+    NS_HARDWARE_DIR,     /* 0/hardware, .../storage, .../memory - structural   */
+    NS_SYSTEM_DIR,       /* 0/system, 0/system/kernel, ...    - structural      */
+    NS_SYSTEM_NODE,      /* 0/system/ (any leaf)              - OS info/control */
+    NS_DEV_DIR,          /* 0/dev                             - device shims dir*/
+    NS_DEV_SHIM,         /* 0/dev/null|zero|console           - device shims    */
+    NS_USER_STORE,       /* 0/user/...                        - logical user root*/
     NS_UNRESOLVED        /* parsed but no such resource                         */
 } ns_kind_t;
 
@@ -67,7 +72,7 @@ int ns_parse_valid(const char* path);
  *
  * Returns:
  *   NS_FS_OK        ( 0)  out holds the fs path ("/" for a volume root)
- *   NS_FS_NOT_NS    ( 1)  not a namespace path — caller passes through
+ *   NS_FS_NOT_NS    ( 1)  not a namespace path - caller passes through
  *   NS_FS_EPARSE    (-1)  invalid namespace syntax
  *   NS_FS_EUNKNOWN  (-2)  grammatically valid, no such resource
  *   NS_FS_EVOLUME   (-3)  addresses a volume other than the mounted one

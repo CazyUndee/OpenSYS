@@ -150,37 +150,37 @@ try:
 
     checks = []
 
-    # 1. vcat /proc/uptime through the fd layer
-    ok = w.type_and_wait("vcat /proc/uptime\n", "bytes via fd")
+    # 1. vcat 0/system/runtime/uptime through the fd layer
+    ok = w.type_and_wait("vcat 0/system/runtime/uptime\n", "bytes via fd")
     out = w.tail()
     ok = ok and "Uptime:" in out
-    checks.append(("vcat /proc/uptime (fd layer)", ok, out))
+    checks.append(("vcat 0/system/runtime/uptime (fd layer)", ok, out))
 
-    # 2. vcat /sys/kernel/name
-    ok = w.type_and_wait("vcat /sys/kernel/name\n", "bytes via fd")
+    # 2. vcat 0/system/kernel/name
+    ok = w.type_and_wait("vcat 0/system/kernel/name\n", "bytes via fd")
     out = w.tail()
     ok = ok and "Plan 0" in out
-    checks.append(("vcat /sys/kernel/name (fd layer)", ok, out))
+    checks.append(("vcat 0/system/kernel/name (fd layer)", ok, out))
 
-    # 3. vcat /proc/processes
-    ok = w.type_and_wait("vcat /proc/processes\n", "bytes via fd")
+    # 3. vcat 0/system/processes
+    ok = w.type_and_wait("vcat 0/system/processes\n", "bytes via fd")
     out = w.tail()
     ok = ok and "PID" in out
-    checks.append(("vcat /proc/processes (fd layer)", ok, out))
+    checks.append(("vcat 0/system/processes (fd layer)", ok, out))
 
-    # 4. vcat /dev/null — empty but still opens through fd layer
-    ok = w.type_and_wait("vcat /dev/null\n", "0 bytes via fd")
-    checks.append(("vcat /dev/null empty via fd", ok, w.tail(300)))
+    # 4. vcat 0/dev/null — empty but still opens through fd layer
+    ok = w.type_and_wait("vcat 0/dev/null\n", "0 bytes via fd")
+    checks.append(("vcat 0/dev/null empty via fd", ok, w.tail(300)))
 
     # 5. vcat of a non-existent virtual file fails at open
     ok = w.type_and_wait("vcat /proc/nope\n", "could not open")
     checks.append(("vcat /proc/nope fails at open", ok, w.tail(300)))
 
     # 6. ordinary ramfs file still opens through the fd layer
-    ok = w.type_and_wait("vcat /sys/kernel/arch\n", "bytes via fd")
+    ok = w.type_and_wait("vcat 0/system/kernel/arch\n", "bytes via fd")
     out = w.tail()
     ok = ok and "x86_64" in out
-    checks.append(("vcat /sys/kernel/arch (fd layer)", ok, out))
+    checks.append(("vcat 0/system/kernel/arch (fd layer)", ok, out))
 
     # 7. a REAL (fs.c) file is reachable through the fd layer: write it
     #    via the shell's write command, then vcat it back via fds.
@@ -367,14 +367,14 @@ try:
     checks.append(("grep beta finds lines 1+3", ok, out))
     ok = w.type_and_wait("grep zzz grepfile.txt\n", "no matches")
     checks.append(("grep zzz no matches", ok, w.tail(120)))
-    ok = w.type_and_wait("grep Uptime /proc/uptime\n", "1: Uptime")
-    checks.append(("grep Uptime /proc/uptime", ok, w.tail(200)))
+    ok = w.type_and_wait("grep Uptime 0/system/runtime/uptime\n", "1: Uptime")
+    checks.append(("grep Uptime 0/system/runtime/uptime", ok, w.tail(200)))
 
     # 15b. wc: line/word/byte counts on a real file and a virtual one.
     ok = w.type_and_wait("wc grepfile.txt\n", "3 lines, 6 words, 34 bytes")
     checks.append(("wc grepfile counts", ok, w.tail(160)))
-    ok = w.type_and_wait("wc /proc/uptime\n", "2 lines, 7 words")
-    checks.append(("wc /proc/uptime", ok, w.tail(160)))
+    ok = w.type_and_wait("wc 0/system/runtime/uptime\n", "2 lines, 7 words")
+    checks.append(("wc 0/system/runtime/uptime", ok, w.tail(160)))
 
     # 16. cat streams files larger than 255 bytes: build one with edit
     #     (20 lines x 24 chars = ~480 bytes) and confirm the LAST line

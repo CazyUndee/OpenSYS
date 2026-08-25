@@ -87,16 +87,16 @@ print("Shell is up! Running commands...\n")
 
 commands = [
     ("ls /proc", "Virtual /proc directory listing"),
-    ("read /proc/uptime", "Virtual file: uptime"),
-    ("read /proc/memory", "Virtual file: memory"),
-    ("read /proc/version", "Virtual file: version"),
-    ("read /proc/hostname", "Virtual file: hostname"),
+    ("read 0/system/runtime/uptime", "Virtual file: uptime"),
+    ("read 0/hardware/memory/ram", "Virtual file: memory"),
+    ("read 0/system/version", "Virtual file: version"),
+    ("read 0/system/hostname", "Virtual file: hostname"),
     ("ls /sys", "Virtual /sys directory listing"),
-    ("read /sys/kernel/name", "Virtual file: kernel name"),
-    ("read /sys/kernel/arch", "Virtual file: kernel arch"),
+    ("read 0/system/kernel/name", "Virtual file: kernel name"),
+    ("read 0/system/kernel/arch", "Virtual file: kernel arch"),
     ("ls /dev", "Virtual /dev directory listing"),
-    ("read /proc/processes", "Virtual file: processes"),
-    ("read /proc/meminfo", "Virtual file: meminfo"),
+    ("read 0/system/processes", "Virtual file: processes"),
+    ("read 0/hardware/memory/info", "Virtual file: meminfo"),
     ("echo hello from shell", "Echo test (should work)"),
 ]
 
