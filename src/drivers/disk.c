@@ -28,6 +28,7 @@
 /* Disk info */
 static disk_info_t disk_info;
 static int disk_initialized = 0;
+static int disk_is_ssd_cached = 0;
 
 /*
  * Wait for disk ready (not BSY)
@@ -132,6 +133,12 @@ int disk_init(void) {
     /* Parse disk info */
     /* LBA sectors (words 60-61) */
     disk_info.lba_sectors = ((uint32_t)identify[61] << 16) | identify[60];
+
+    /* Nominal media rotation rate (word 217): 0x0001 = solid-state
+     * (non-rotational); 0x0000 = rate not reported. Everything else is
+     * a rotational device. Used by the namespace to expose the disk
+     * under its true storage class. */
+    disk_is_ssd_cached = (identify[217] == 0x0001);
     
     /* LBA48 sectors (words 100-103) */
     disk_info.lba48_sectors = ((uint64_t)identify[103] << 48) |
@@ -236,4 +243,11 @@ uint64_t disk_get_size(void) {
 
 int disk_is_ready(void) {
     return disk_initialized;
+}
+
+/* 1 = solid-state media (IDENTIFY word 217 == 1), 0 = rotational or
+ * unreported, -1 = no disk attached. */
+int disk_is_ssd(void) {
+    if (!disk_initialized) return -1;
+    return disk_is_ssd_cached;
 }

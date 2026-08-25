@@ -46,6 +46,11 @@ typedef struct {
 // Core API
 void part_init(void);
 int part_is_ready(void);
+
+/* Namespace storage-class name of the detected device ("hdd"/"ssd"),
+ * or 0 when no disk/GPT is attached. */
+const char* part_storage_device(void);
+
 int part_get_info(int partition_num, part_info_t* info);
 int part_list_partitions(part_info_t* partitions, int max_count);
 

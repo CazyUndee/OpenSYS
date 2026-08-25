@@ -67,4 +67,8 @@ uint64_t disk_get_size(void);
 /* Check if disk is initialized and ready */
 int disk_is_ready(void);
 
+/* 1 = solid-state media (IDENTIFY word 217), 0 = rotational/unreported,
+ * -1 = no disk attached. Drives the namespace storage-class naming. */
+int disk_is_ssd(void);
+
 #endif

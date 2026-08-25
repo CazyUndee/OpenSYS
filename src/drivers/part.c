@@ -44,6 +44,14 @@ int part_is_ready(void) {
     return part_ready;
 }
 
+/* Namespace storage-class name of the device this partition table
+ * belongs to ("ssd"/"hdd"), or 0 when no disk/GPT is attached. Until
+ * multi-device support lands there is exactly one owning device. */
+const char* part_storage_device(void) {
+    if (!part_ready || !disk_is_ready()) return 0;
+    return disk_is_ssd() == 1 ? "ssd" : "hdd";
+}
+
 // Initialize Part system
 void part_init(void) {
   terminal_writestring("[PART] Initializing Partition Management...\n");
