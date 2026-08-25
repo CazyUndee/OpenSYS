@@ -3,6 +3,7 @@
  */
 
 #include <stdint.h>
+#include "io.h"
 
 #define PIT_CHANNEL0 0x40
 #define PIT_CHANNEL1 0x41
@@ -13,16 +14,6 @@
 #define TARGET_FREQ  1000  /* 1000 Hz = 1ms per tick */
 
 static volatile uint64_t system_ticks = 0;
-
-static inline void outb(uint16_t port, uint8_t val) {
-    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
-}
-
-static inline uint8_t inb(uint16_t port) {
-    uint8_t ret;
-    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
-    return ret;
-}
 
 /* Called from IRQ0 */
 void timer_handler(void) {
