@@ -55,7 +55,7 @@ static pte_t* get_or_create_table(pte_t* parent, uint64_t index, uint64_t flags)
         return (pte_t*)(parent[index] & 0x000FFFFFFFFFF000ULL);
     }
     
-    void* page = memory_alloc_page();
+    void* page = (void*)(uint64_t)pmm_alloc_page();
     if (!page) return 0;
     
     pte_t* table = (pte_t*)page;
@@ -86,7 +86,7 @@ void paging_init(void) {
     /* 
      * Step 1: Extend the existing boot identity map to cover ALL physical
      * memory. The boot asm only identity-maps the first 4MB (two 2MB huge
-     * pages in PD[0] and PD[1]). When we call memory_alloc_page()
+     * pages in PD[0] and PD[1]). When we call pmm_alloc_page()
      * below, it may return pages above 4MB — we need them accessible
      * through the current page tables to zero them out.
      */
@@ -128,7 +128,7 @@ void paging_init(void) {
      * Step 2: Now that all physical memory is accessible, allocate and
      * set up the permanent page table hierarchy.
      */
-    pml4 = (pte_t*)memory_alloc_page();
+    pml4 = (pte_t*)(uint64_t)pmm_alloc_page();
     if (!pml4) {
         terminal_writestring("  ERROR: Failed to allocate PML4!\n");
         return;
@@ -211,7 +211,7 @@ uint64_t paging_get_physical(uint64_t vaddr) {
 }
 
 void* paging_alloc(uint64_t vaddr, uint64_t flags) {
-    void* phys = memory_alloc_page();
+    void* phys = (void*)(uint64_t)pmm_alloc_page();
     if (!phys) return 0;
     
     paging_map(vaddr, (uint64_t)phys, flags);

@@ -38,6 +38,10 @@ static uint64_t pmm_ref_end = 0;
 /* Linker symbol: the address after kernel BSS end */
 extern uint64_t kernel_end[];
 
+/* Forward declarations for helpers defined after pmm_init */
+void pmm_reserve_range(phys_addr_t start, size_t length);
+void pmm_free_range(phys_addr_t start, size_t length);
+
 static inline void bitmap_set(uint64_t index) {
     pmm_bitmap[index / 64] |= (1ULL << (index % 64));
 }
@@ -51,7 +55,7 @@ static inline int bitmap_test(uint64_t index) {
 }
 
 // Initialize memory system
-void memory_init(uint64_t mbi) {
+void pmm_init(uint64_t mbi) {
     terminal_writestring("[MEMORY] Initializing Memory System...\n");
     
     struct mboot_info* mbi_struct = (struct mboot_info*)mbi;
@@ -186,7 +190,7 @@ void memory_init(uint64_t mbi) {
             if (entry->type == MBOOT_MEM_AVAILABLE) {
                 uint64_t base = ((uint64_t)entry->base_high << 32) | entry->base_low;
                 uint64_t len = ((uint64_t)entry->length_high << 32) | entry->length_low;
-                memory_free_range(base, len);
+                pmm_free_range(base, len);
             }
             entry = MMAP_ENTRY_NEXT(entry);
         }
@@ -203,7 +207,7 @@ void memory_init(uint64_t mbi) {
     terminal_writestring("[MEMORY] Memory System Ready!\n");
 }
 
-void* memory_alloc_page(void) {
+phys_addr_t pmm_alloc_page(void) {
     if (pmm_free_pages_count == 0) return 0;
 
     for (uint64_t i = 0; i < pmm_bitmap_size; i++) {
@@ -216,7 +220,7 @@ void* memory_alloc_page(void) {
                     bitmap_set(page_index);
                     pmm_free_pages_count--;
 
-                    return (void*)(page_index * PAGE_SIZE);
+                    return (phys_addr_t)(page_index * PAGE_SIZE);
                 }
             }
         }
@@ -224,8 +228,8 @@ void* memory_alloc_page(void) {
     return 0;
 }
 
-void memory_free_page(void* addr) {
-    uint64_t page = (uint64_t)addr / PAGE_SIZE;
+void pmm_free_page(phys_addr_t addr) {
+    uint64_t page = addr / PAGE_SIZE;
     if (page >= pmm_total_pages_count) return;
     if (!bitmap_test(page)) return;
 
@@ -233,7 +237,7 @@ void memory_free_page(void* addr) {
     pmm_free_pages_count++;
 }
 
-void memory_reserve_range(uint64_t start, size_t length) {
+void pmm_reserve_range(phys_addr_t start, size_t length) {
     uint64_t first_page = start / PAGE_SIZE;
     uint64_t last_page = (start + length + PAGE_SIZE - 1) / PAGE_SIZE;
 
@@ -245,15 +249,19 @@ void memory_reserve_range(uint64_t start, size_t length) {
     }
 }
 
-void memory_free_range(uint64_t start, size_t length) {
+void pmm_free_range(phys_addr_t start, size_t length) {
     uint64_t first_page = (start + PAGE_SIZE - 1) / PAGE_SIZE;
     uint64_t last_page = (start + length) / PAGE_SIZE;
 
-    /* Skip first 1MB (reserved) */
-    if (first_page < 256) first_page = 256;
-
     uint64_t bitmap_start = (uint64_t)pmm_bitmap;
     uint64_t bitmap_end = bitmap_start + pmm_bitmap_size * 8;
+
+    /* Skip everything below the bitmap: the low 1MB (BIOS/IVT) plus the
+     * kernel's own code/data/BSS. The bitmap starts right after kernel_end,
+     * so this guarantees pmm_alloc_page() never returns a page overlapping
+     * the running kernel. */
+    uint64_t kernel_end_page = bitmap_start / PAGE_SIZE;
+    if (first_page < kernel_end_page) first_page = kernel_end_page;
 
     for (uint64_t page = first_page; page < last_page && page < pmm_total_pages_count; page++) {
         uint64_t page_addr = page * PAGE_SIZE;
@@ -279,34 +287,14 @@ void memory_get_stats(memory_stats_t* stats) {
     stats->free_mb = pmm_free_pages_count * PAGE_SIZE / (1024 * 1024);
 }
 
-// Legacy compatibility functions
-void pmm_init(uint64_t mbi) {
-    memory_init(mbi);
-}
 
-phys_addr_t pmm_alloc_page(void) {
-    return (phys_addr_t)memory_alloc_page();
-}
-
-void pmm_free_page(phys_addr_t addr) {
-    memory_free_page((void*)addr);
-}
-
-void pmm_reserve_range(uint64_t start, size_t length) {
-    memory_reserve_range(start, length);
-}
-
-void pmm_free_range(uint64_t start, size_t length) {
-    memory_free_range(start, length);
-}
 
 size_t pmm_get_total(void) { return pmm_total_pages_count * PAGE_SIZE; }
 size_t pmm_get_free(void) { return pmm_free_pages_count * PAGE_SIZE; }
 size_t pmm_get_total_pages(void) { return pmm_total_pages_count; }
 size_t pmm_get_free_pages(void) { return pmm_free_pages_count; }
 
-uint64_t memory_get_total(void) { return pmm_total_pages_count * PAGE_SIZE / (1024 * 1024); }
-uint64_t memory_get_free(void) { return pmm_free_pages_count * PAGE_SIZE / (1024 * 1024); }
+
 
 // Reference counting functions for COW
 int pmm_ref_count(phys_addr_t addr) {

@@ -32,20 +32,11 @@ typedef struct {
     uint64_t kernel_heap_used;
 } memory_stats_t;
 
-// Core API
-void memory_init(uint64_t mbi);
+// Memory statistics
 void memory_get_stats(memory_stats_t* stats);
-void* memory_alloc_page(void);
 
-// Memory allocation (for LibC)
+// Memory allocation (for LibC — future)
 void* memory_malloc(size_t size);
 void memory_free(void* ptr);
-
-// Memory information
-uint64_t memory_get_total(void);
-uint64_t memory_get_free(void);
-
-// Memory range management
-void memory_free_range(uint64_t start, size_t length);
 
 #endif // MEMORY_H
