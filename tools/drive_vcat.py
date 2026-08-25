@@ -370,6 +370,12 @@ try:
     ok = w.type_and_wait("grep Uptime /proc/uptime\n", "1: Uptime")
     checks.append(("grep Uptime /proc/uptime", ok, w.tail(200)))
 
+    # 15b. wc: line/word/byte counts on a real file and a virtual one.
+    ok = w.type_and_wait("wc grepfile.txt\n", "3 lines, 6 words, 34 bytes")
+    checks.append(("wc grepfile counts", ok, w.tail(160)))
+    ok = w.type_and_wait("wc /proc/uptime\n", "2 lines, 7 words")
+    checks.append(("wc /proc/uptime", ok, w.tail(160)))
+
     # 16. cat streams files larger than 255 bytes: build one with edit
     #     (20 lines x 24 chars = ~480 bytes) and confirm the LAST line
     #     is visible in cat output (the old cap truncated at 255).

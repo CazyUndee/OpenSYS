@@ -592,6 +592,72 @@ static void cmd_grep(const char* pattern, const char* name) {
     terminal_writestring_nl("");
 }
 
+/* ---- wc ----
+ * `wc <file>` prints line/word/byte counts for a real or virtual file,
+ * Unix `wc -l -w -c` style. Reads the whole content like grep. */
+static void cmd_wc(const char* name) {
+    if (!name || !*name) {
+        terminal_writestring_nl("  Usage: wc <file>");
+        return;
+    }
+    char path[256];
+    if (resolve_path(path, name) < 0) {
+        terminal_writestring_nl("  Error: path too long");
+        return;
+    }
+
+    char content[4096];
+    int total = 0;
+    char vbuf[VFILE_MAX_CONTENT];
+    int vlen = vfile_read(path, vbuf, sizeof(vbuf));
+    if (vlen >= 0) {
+        total = vlen < (int)sizeof(content) - 1 ? vlen : (int)sizeof(content) - 1;
+        k_memcpy(content, vbuf, total);
+    } else {
+        fs_file_t* file = fs_open(path, 0);
+        if (!file) {
+            terminal_writestring_nl("  Error: File not found");
+            return;
+        }
+        char buf[256];
+        size_t off = 0;
+        while (off < file->size && total < (int)sizeof(content) - 1) {
+            size_t to_read = file->size - off > 256 ? 256 : file->size - off;
+            size_t r = fs_read(file, buf, to_read);
+            if (r == 0) break;
+            for (size_t i = 0; i < r && total < (int)sizeof(content) - 1; i++) {
+                content[total++] = buf[i];
+            }
+            off += r;
+        }
+        fs_close(file);
+    }
+
+    int lines = 0;
+    int words = 0;
+    int in_word = 0;
+    for (int i = 0; i < total; i++) {
+        char c = content[i];
+        if (c == '\n') lines++;
+        if (c == ' ' || c == '\t' || c == '\n') {
+            in_word = 0;
+        } else if (!in_word) {
+            in_word = 1;
+            words++;
+        }
+    }
+    if (total > 0 && content[total - 1] != '\n') lines++;  /* partial last line */
+
+    terminal_writestring("  ");
+    terminal_put_dec(lines);
+    terminal_writestring(" lines, ");
+    terminal_put_dec(words);
+    terminal_writestring(" words, ");
+    terminal_put_dec(total);
+    terminal_writestring(" bytes  ");
+    terminal_writestring_nl(name);
+}
+
 /* ---- Recursive directory copy ----
  * `copy <dir> <dst>` mirrors a directory tree: subdirectories are
  * recreated with fs_mkdir and every file is copied byte-for-byte.
@@ -1088,6 +1154,7 @@ static void show_help(void) {
     terminal_writestring_nl("    information about <name> - show file details");
     terminal_writestring_nl("    find <pattern>    - search for files");
     terminal_writestring_nl("    grep <pat> <file> - print matching lines");
+    terminal_writestring_nl("    wc <file>          - line/word/byte counts");
     terminal_writestring_nl("    go to <path>      - change directory");
     terminal_writestring_nl("    here              - print working directory");
     terminal_writestring_nl("    up                - go to parent directory");
@@ -1571,6 +1638,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "grep")) {
         cmd_grep(arg1, arg2);
+    }
+    else if (cmd_equals(cmd, "wc")) {
+        cmd_wc(arg1);
     }
     else if (cmd_equals(cmd, "find")) {
         cmd_find(arg1);
