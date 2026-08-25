@@ -99,12 +99,12 @@ int part_list_partitions(part_info_t* partitions, int max_count) {
 
 // Read partition sectors
 int part_read_sectors(int partition_num, uint64_t start_lba, void* buffer, size_t sectors) {
-    // This would need partition-specific LBA calculation
+    (void)partition_num;  // TODO: partition-specific LBA offset
     return disk_read(start_lba, sectors, buffer);
 }
 
 // Write partition sectors
 int part_write_sectors(int partition_num, uint64_t start_lba, const void* buffer, size_t sectors) {
-    // This would need partition-specific LBA calculation
+    (void)partition_num;  // TODO: partition-specific LBA offset
     return disk_write(start_lba, sectors, buffer);
 }

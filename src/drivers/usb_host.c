@@ -418,7 +418,7 @@ int usb_enumerate(void) {
         for (volatile int w = 0; w < 10000; w++) __asm__ volatile("pause");
 
         /* ---- GET_DESCRIPTOR (Device) to read max packet size ---- */
-        usb_device_desc_t dev_desc;
+        /* usb_device_desc_t dev_desc; -- unused, data read via data_buf */
         usb_request_t get_desc_req;
         get_desc_req.request_type = 0x80;  /* Device-to-host, standard, device */
         get_desc_req.request      = USB_REQ_GET_DESCRIPTOR;
@@ -591,7 +591,7 @@ int usb_enumerate(void) {
 
         /* ---- Read configuration descriptor to find HID interface ---- */
         /* First read just the config descriptor header (9 bytes) for total length */
-        uint8_t cfg_hdr[9];
+        /* uint8_t cfg_hdr[9]; -- unused, config read via data_buf */
         usb_request_t get_cfg_req;
         get_cfg_req.request_type = 0x80;
         get_cfg_req.request      = USB_REQ_GET_DESCRIPTOR;

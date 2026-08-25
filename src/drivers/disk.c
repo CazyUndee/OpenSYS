@@ -225,3 +225,7 @@ uint64_t disk_get_size(void) {
     }
     return disk_info.lba_sectors * ATA_SECTOR_SIZE;
 }
+
+int disk_is_ready(void) {
+    return disk_initialized;
+}

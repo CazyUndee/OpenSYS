@@ -49,7 +49,7 @@ typedef struct {
 } input_event_t;
 
 // Core API
-void input_init(void);
+int input_init(void);
 int input_has_event(void);
 input_event_t input_get_event(void);
 void input_flush_events(void);

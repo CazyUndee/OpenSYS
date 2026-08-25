@@ -64,4 +64,7 @@ int disk_write48(uint64_t lba, uint32_t count, const void* buffer);
 /* Get total disk size in bytes */
 uint64_t disk_get_size(void);
 
+/* Check if disk is initialized and ready */
+int disk_is_ready(void);
+
 #endif

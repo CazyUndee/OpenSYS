@@ -16,7 +16,7 @@
 static int ps2_active = 0;
 static int hid_active = 0;
 
-void input_init(void) {
+int input_init(void) {
     ps2_active = (ps2_keyboard_init() == 0);
 
     /* Try USB HID keyboard if PS/2 failed or as fallback */
@@ -26,6 +26,8 @@ void input_init(void) {
             hid_active = 1;
         }
     }
+
+    return ps2_active || hid_active;
 }
 
 int input_has_event(void) {
