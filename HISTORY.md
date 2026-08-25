@@ -1,5 +1,49 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Partitioned disk I/O (part.c) + ATA IDENTIFY reliability fix
+
+### Context
+STATE's near-term backlog: "Add part.c to disk I/O path for partitioned access". Investigation found `part_init()` was never even called from kernel_main, `part_get_info` was stubbed to zeros, and `part_read/write_sectors` ignored the partition number entirely (TODO comments). The GPT layer (partition_table.c) already parsed header + entries correctly.
+
+### Changes
+
+#### `src/drivers/part.c` (+ `include/part.h`)
+- **`part_translate()`** — partition-relative → absolute LBA translation with bounds checks: sectors must be 1..256 (LBA28 driver cap), the range must fit inside the GPT entry (`start_lba`/`end_lba` inclusive), absolute LBA capped at 0x0FFFFFFF. Every rejection returns -1 without touching the disk.
+- **`part_read_sectors`/`part_write_sectors`** now honor `partition_num` via the translation.
+- **`part_get_info`** filled from the real GPT entry: start LBA, size (inclusive end), type classification against well-known GUIDs (EFI system/Linux swap/Linux fs/FAT32), UTF-16LE label converted to ASCII.
+- **`part_list_partitions`** dense used-only listing (unused table slots dropped; original slot index preserved in `partition_number`).
+- **`part_is_ready()`** guard flag set only after a successful `gpt_init`; every public entry point checks it.
+- **`part_init()`** skips a redundant `disk_init` when the disk is already up, treats "no GPT" as non-fatal ("No GPT partition table found"), and reports the USED partition count instead of the raw table size.
+- `part.h`: `part_is_ready()` declared.
+
+#### `src/kernel/kernel.c`
+- `part_init()` called after successful `disk_init()` at boot.
+
+#### `src/ui/shell.c`
+- New `parts` command (`show partitions`, `parts` alias): no-disk/no-GPT guards, lists # / start LBA / size KB / label for each used entry, then probe-reads sector 0 of EVERY listed partition through `part_read_sectors` so the translation is exercised against real hardware in the listing itself (`read pN sector 0: ok|FAILED`).
+
+#### `src/drivers/disk.c`
+- **ATA IDENTIFY race fix**: disk_init read STATUS exactly once after issuing IDENTIFY; under WHPX this intermittently observed a not-yet-started command (~50% of boots with a disk attached reported "ATA disk init FAILED"). Now polls up to 100k spins: 0x00 = floating bus (no drive), BSY must clear, then ERR/DF checked. Boot-with-disk went from ~50% failure to 4/4 clean runs.
+
+#### Tests
+- `tests/mocks/mock_kernel.c`: un-prefixed `disk_*`/`gpt_*` mocks (init/ready/read/write/get_info/get_size; gpt_init/gpt_list_partitions/gpt_get_partition) with test setters `mock_disk_set_ready`, `mock_disk_io_reset`, `mock_disk_last_io`, `mock_gpt_setup` (MOCK_GPT_MAX_PARTS=16).
+- `tests/unit/test_part.c` (NEW, 8 tests): real part.c compiled over the mocks — init without GPT stays unready; read translates rel-LBA 10 → abs 2058; write lands on partition start 2048; all bounds rejections perform ZERO disk calls; requires-ready; get_info fields incl. label conversion and GUID classification; dense listing drops gap slots.
+- `tests/Makefile`: part.c added to REAL_SRCS, test_part.c to unit sources; `tests/test_runner.c`: "Partition Manager" suite registered.
+
+#### Tools
+- `tools/make_gpt_image.py` (NEW): builds a 16 MiB raw image with protective MBR, GPT header @LBA1 (CRCs zeroed — driver has GPT_VALIDATE_CRC=0), entry array @LBA2, two used partitions: "plan0-test" (Linux-fs GUID, LBA 2048-4095) and "data-two" (FAT32 GUID, LBA 4096-6143).
+- `tools/drive_parts.py` (NEW): boots `-kernel bin/kernel0.bin -drive file=tools/gpt_test.img,if=ide,format=raw,index=0` under WHPX, echo-verifies keystrokes, checks the boot-time GPT parse ("Found 2 partitions"), the `parts` listing (starts/sizes/labels), both probe reads, and a `wc` shell regression. Image regenerated per run (fs_format writes its boot sector over LBA 0 during boot).
+
+### Verification
+- Kernel build clean (0 compiler warnings; the 2 known pre-existing linker notes).
+- Host suite: **156/156 pass** (148 previous + 8 partition tests).
+- QEMU/WHPX end-to-end: `drive_parts.py` **5/5 checks × 4 consecutive runs** — boot-time GPT parse, parts listing (2048/1024/plan0-test + 4096/data-two), partition-relative probe reads ok on p0+p1, wc regression green.
+
+### Results
+- Partitioned access is real: relative LBAs translate through the GPT entry with hard bounds; observable via `parts` including live probe reads through the new I/O path.
+- Disk attach is now reliable under WHPX (IDENTIFY poll).
+- Known follow-up recorded in STATE: fs.c still formats/mounts whole-disk (not behind a partition); serial drive scripts remain intermittently lossy host-side (documented).
+
 ## 2026-08-25 — Agent Session: Land previously-uncommitted infrastructure + `wc` command
 
 ### Context
