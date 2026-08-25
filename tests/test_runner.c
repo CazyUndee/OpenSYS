@@ -18,6 +18,7 @@ extern test_suite_t* create_kernel_integration_test_suite(void);
 extern test_suite_t* create_vfile_test_suite(void);
 extern test_suite_t* create_ramfs_test_suite(void);
 extern test_suite_t* create_part_test_suite(void);
+extern test_suite_t* create_ns_test_suite(void);
 
 // Test suite registry
 typedef struct {
@@ -35,6 +36,7 @@ static test_suite_info_t test_suites[] = {
     {"Virtual Filesystem", create_vfile_test_suite, 1},
     {"RAM Filesystem", create_ramfs_test_suite, 1},
     {"Partition Manager", create_part_test_suite, 1},
+    {"Namespace Resolver", create_ns_test_suite, 1},
 };
 
 static const int num_test_suites = sizeof(test_suites) / sizeof(test_suite_info_t);
