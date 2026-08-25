@@ -1,5 +1,43 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Namespace slice 2 — filesystem binds a partition volume
+
+### Context
+Next slice per docs/NAMESPACE.md §16/§23 and STATE known-issue #5: make `0/hardware/storage/<dev>/partitions/<n>` a REAL fs volume — the filesystem must live inside the partition (offset from its start, size clamped to it) instead of formatting over whole-disk LBA 0, which previously destroyed the protective MBR on GPT disks.
+
+### First attempt (corrected)
+Initially placed the binding (`fs_use_partition` etc.) directly in fs.c and compiled fs.c into the host suite — which collided at link time with the existing functional fs_* mock in mock_kernel.c. Restructured: the binding lives in its own module; fs.c only consumes it.
+
+### Changes
+
+#### `src/fs/volume.c` + `include/volume.h` (NEW)
+- `volume_use_partition(n)` validates n against the live dense partition list and stores base LBA + sector count; `volume_use_whole_disk()` restores legacy (base 0, unbounded); getters `volume_base_lba()`/`volume_sectors()`.
+
+#### `src/fs/fs.c`
+- Boot-sector write (format) and boot-sector read (mount) target the volume base instead of absolute LBA 0.
+- `read_cluster`/`write_cluster` offset every cluster by the volume base.
+- `fs_format` clamps requested disk_size to the bound volume — an fs can never span past its partition into neighboring volumes.
+
+#### `src/kernel/kernel.c`
+- Boot policy: when `part_is_ready()`, bind `volume_use_partition(1)` before filesystem init ("FS volume: storage partitions/1"). Without disk/GPT the legacy in-memory path applies unchanged.
+
+#### Tests
+- `tests/unit/test_fs_volume.c` (NEW, 2 tests): selection/validation (1-based, out-of-range rejection, per-partition bases) and legacy whole-disk reset — real volume.c + part.c over mocks.
+- `tests/mocks/mock_kernel.c`: disk mock now tracks the min/max LBA range touched since reset (`mock_disk_io_range`) for volume-containment assertions.
+
+#### Tools
+- `tools/drive_parts.py`: new checks — boot log "FS volume: storage partitions/1", and **post-run host-side image inspection**: protective MBR intact (0xEE entry + 0x55AA), GPT header intact, FS magic "PLAN" at partition 1 start (LBA 2048), partition 2 NOT formatted. QEMU stderr captured to a log.
+
+### Verification
+- Kernel build clean (0 compiler warnings).
+- Host suite: **165/165 pass**.
+- QEMU/WHPX `drive_parts.py`: **10/10** — boot parse, volume binding line, parts listing, probe reads, wc regression + all four image-inspection proofs (the definitive demonstration that format went INSIDE the partition).
+- No-disk regression: `drive_vcat.py` 72/72 (legacy in-memory path untouched).
+
+### Results
+- Known issue #5 resolved: the storage stack is now genuinely partitioned end-to-end (disk → GPT → partition-relative I/O → fs INSIDE the volume), matching the namespace model where volumes are addressed as `<device>/partitions/<n>`.
+- Environment note: intermittent WHPX ATA-attach flake still observed occasionally (clean on retry; stderr shows no host-side drive error) — documented in STATE alongside the serial keystroke-drop issue.
+
 ## 2026-08-25 — Agent Session: Plan0 namespace architecture (spec + resolver slice)
 
 ### Context

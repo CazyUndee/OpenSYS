@@ -267,7 +267,7 @@ Audited current state (2026-08-25):
 
 | Current | Nature | Target under `0/` |
 |---|---|---|
-| `/` (VFS root mount) | whole-disk fs.c via fs_vfs_ops | `0/hardware/storage/<dev>/partitions/<n>/` once fs mounts on partitions; until then unchanged |
+| `/` (VFS root mount) | whole-disk fs.c via fs_vfs_ops | **DONE**: with a GPT present the fs binds to `partitions/1` via the volume layer (`volume_use_partition`); all fs block I/O offsets from the partition start and format size clamps to the volume. Without disk/GPT, legacy behavior. Shell paths unchanged; namespace-level volume addressing (`ls 0/hardware/storage/...`) is a later slice |
 | `/proc/*` | vfile registry (Unix proc) | `0/system/*` (uptime→runtime/uptime, processes, mounts, heap, hostname…) |
 | `/sys/kernel/*` | vfile registry | `0/system/kernel/*` |
 | `/sys/hardware/platform`, `/sys/devices/pci` | vfile registry | `0/hardware/platform`, `0/hardware/pci` |
