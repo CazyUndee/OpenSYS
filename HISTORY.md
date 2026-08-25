@@ -1,5 +1,45 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Agent Session: Namespace slice 3 — shell speaks the namespace
+
+### Context
+Next addressing-level slice: shell path-taking commands accept Plan0 namespace paths (`0/...`) with resolution through the resolver, legacy `/`-rooted syntax preserved bit-for-bit. Also surfaced and fixed a real semantic gap: storage device classes were resolving even when no hardware of that class existed.
+
+### Changes
+
+#### `src/fs/ns.c` + `include/ns.h`
+- **Partition depth fix**: partition resources resolve at ANY depth below `partitions/<n>` (e.g. `.../partitions/1/docs/x.txt`) instead of unknown at depth 7 — an off-by-one that had hidden volume-content addressing.
+- **`ns_to_fs_path()`**: shell-argument translation. Non-namespace args (no `<digit>/` prefix) pass through; `<device>/partitions/<n>/rest` → `/rest` only when n is the mounted volume (`volume_base_lba` comparison); `0/user/rest` → `/rest` (logical user root v1 binds the active volume); typed errors NS_FS_EPARSE / EUNKNOWN / EVOLUME / EKIND. Output never longer than input → safe in-place replacement.
+
+#### Topology honesty (device classes)
+- **`disk.c`/`disk.h`**: caches ATA IDENTIFY word 217 (nominal media rotation rate; 0x0001 = solid state) → `disk_is_ssd()`.
+- **`part.c`/`part.h`**: `part_storage_device()` returns "hdd"/"ssd" for the single detected device, 0 without hardware.
+- **`ns.c`**: storage branches classify ONLY the owning class; the absent class answers unknown. Previously `0/hss/...` silently resolved to the same partitions as `0/hsh/...` — a topology lie this session removed.
+
+#### `src/ui/shell.c`
+- One pre-pass at the top of `dispatch()` translates arg1/arg2 via `ns_to_fs_path` (except the `ns` command, which consumes raw namespace paths). Every path-taking command (cat/read/write/edit/ls/go to/mkdir/delete/copy/move/find/grep/wc/info/chmod/vcat) now accepts namespace paths; handlers untouched; legacy behavior identical. Help text documents the syntax.
+
+#### Tests
+- `tests/unit/test_ns.c` rewritten around truthful fixtures (11 tests): grammar, alias mechanics (incl. boundary safety), alias≡canonical descriptor equivalence, classification WITH topology-honesty assertions (absent ssd class unknown; no hardware → no storage classes at all), volume-tree resolution below partitions/N, translation suite (passthrough/partition/user/errors incl. absent-device vs absent-partition distinction).
+- `tests/mocks/mock_kernel.c`: `mock_disk_set_ssd()` + `disk_is_ssd()` mock.
+
+#### Tools
+- `drive_parts.py`: namespace file-op checks — write via `0/hsh/partitions/1/nsfile.txt`, read via `0/user/nsfile.txt`, legacy `/nsfile.txt` reads the same resource.
+- `drive_ns.py`: boots with the GPT image; hdd describe+alias checks; NEW negative check `ns 0/hss` → "Unknown resource" (topology honesty on real hardware).
+
+### Debugging note
+A wild-goose chase during test bring-up traced to stale incremental builds masking edits (clean builds were authoritative); the actual defect was the partition depth off-by-one above. Clean-build discipline reaffirmed.
+
+### Verification
+- Kernel build clean (0 compiler warnings).
+- Host suite: **169/169**.
+- QEMU/WHPX: `drive_parts.py` **13/13** (namespace write + user-alias read + legacy equivalence + all image-inspection proofs), `drive_ns.py` **6/6**, no-disk regression `drive_vcat.py` **72/72**.
+- Intermittent WHPX boot stalls observed again (different stages, clean on retry) — environment-level, documented in STATE.
+
+### Results
+- Shell syntax revised: every path-taking command now addresses resources through the unified namespace while remaining 100% backward compatible.
+- Remaining addressing work: legacy `/proc`,`/sys`,`/dev` aliasing through the resolver; vfile canonical re-registration under `0/system/*`, `0/dev/*`; directory listing for namespace nodes (`ls 0/hardware/storage`).
+
 ## 2026-08-25 — Agent Session: Namespace slice 2 — filesystem binds a partition volume
 
 ### Context

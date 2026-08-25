@@ -240,12 +240,29 @@ ns_open(path)      → resource handle (future: unified fd integration)
 ns_read / ns_write / ns_close
 ns_stat(path)      → kind, size, writability
 ns_describe(path)  → human-readable explanation incl. aliases (introspection)
+ns_to_fs_path(p)   → shell/kernel bridge: maps a namespace path onto the
+                     mounted filesystem ("/a.txt"), or a structured error
 ```
 
-During migration the shell and kernel continue using existing calls;
-new namespace calls wrap them (see §14). Applications should never parse
-paths themselves to decide "which subsystem do I call" — that decision
-belongs to the resolver.
+`ns_to_fs_path` semantics (implemented):
+
+- Non-namespace arguments pass through untouched (legacy `/`-rooted and
+  bare names are not namespace paths).
+- `<device>/partitions/<n>/rest` → `/rest` **only when n is the mounted
+  volume**; other partitions/unbound volumes → structured "volume not
+  mounted" error.
+- `0/user/rest` → `/rest` (logical user root binds the active volume).
+- Resources without a filesystem (memory, cpu, structural dirs) → typed error.
+- **Topology honesty**: a storage class name (`hdd`/`ssd`) resolves ONLY
+  when detected hardware belongs to it. The class comes from ATA IDENTIFY
+  word 217 (nominal media rotation rate); with one device attached the
+  other class simply does not exist. `part_storage_device()` reports the
+  owning class.
+
+During migration the shell translates namespace arguments once at dispatch
+(`dispatch()` pre-pass; `ns` command excluded — it consumes raw paths), so
+all path-taking commands gained namespace support without touching their
+handlers. Legacy behavior is bit-for-bit preserved.
 
 ## 13. Discoverability / introspection
 
