@@ -4,12 +4,13 @@
  * Copyright (C) 2026 CazyUndee
  */
 
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
 #include "../test_framework.h"
 #include "../../include/memory.h"
 #include "../../include/process.h"
 #include "../../include/fs.h"
-#include <stdlib.h>
-#include <string.h>
 
 // Test memory and process integration
 void test_memory_process_integration(void) {
@@ -106,7 +107,7 @@ void test_multiple_component_allocation(void) {
     // Verify data integrity
     for (int i = 0; i < 5; i++) {
         if (processes[i]) {
-            ASSERT_EQ(processes[i]->pid, 2000 + i, "Process PID should be preserved");
+            ASSERT_EQ(processes[i]->pid, (pid_t)(2000 + i), "Process PID should be preserved");
             ASSERT_EQ(processes[i]->state, PROC_STATE_READY, "Process state should be preserved");
         }
     }
@@ -157,7 +158,7 @@ void test_process_creation_simulation(void) {
     // Verify process table contents
     for (int i = 0; i < 10; i++) {
         if (process_table[i]) {
-            ASSERT_EQ(process_table[i]->pid, 3000 + i, "PID should match expected");
+            ASSERT_EQ(process_table[i]->pid, (pid_t)(3000 + i), "PID should match expected");
             ASSERT_EQ(process_table[i]->state, PROC_STATE_READY, "State should be READY");
             ASSERT_EQ(process_table[i]->priority, i % 10, "Priority should match expected");
             
@@ -218,11 +219,11 @@ void test_filesystem_metadata_simulation(void) {
     // Verify MFT entries
     for (int i = 0; i < 5; i++) {
         if (mft_entries[i]) {
-            ASSERT_EQ(mft_entries[i]->mft_number, i, "MFT number should match");
+            ASSERT_EQ(mft_entries[i]->mft_number, (uint32_t)i, "MFT number should match");
             ASSERT(strcmp(mft_entries[i]->filename, filenames[i]) == 0, "Filename should match");
             ASSERT_EQ(mft_entries[i]->flags, flags[i], "Flags should match");
             ASSERT_EQ(mft_entries[i]->size, sizes[i], "Size should match");
-            ASSERT_EQ(mft_entries[i]->create_time, 1234567890 + i, "Create time should match");
+            ASSERT_EQ(mft_entries[i]->create_time, (uint64_t)(1234567890 + i), "Create time should match");
         }
     }
     
@@ -304,7 +305,7 @@ void test_component_lifecycle_simulation(void) {
         init_process->pid = 1;
         strcpy(init_process->name, "init");
         init_process->state = PROC_STATE_RUNNING;
-        printf("  Init process created (PID: %u)\n", init_process->pid);
+        printf("  Init process created (PID: %llu)\n", (unsigned long long)init_process->pid);
     }
     
     // 3. Initialize filesystem structures

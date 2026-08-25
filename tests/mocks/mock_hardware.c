@@ -207,6 +207,7 @@ uint64_t mock_timer_get_time(mock_timer_t* timer) {
 }
 
 void mock_timer_set_callback(mock_timer_t* timer, void (*callback)(void)) {
+    (void)timer;
     timer_callback = callback;
 }
 

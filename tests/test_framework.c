@@ -6,6 +6,11 @@
 
 #include "test_framework.h"
 #include <stdlib.h>
+#include <setjmp.h>
+#include <signal.h>
+
+/* jmp_buf for ASSERT macros to jump back to the test runner */
+jmp_buf __test_jmp_buf;
 
 void test_suite_init(test_suite_t* suite, const char* name) {
     suite->suite_name = name;
@@ -27,8 +32,16 @@ void test_suite_run(test_suite_t* suite) {
     
     for (uint32_t i = 0; i < suite->test_count; i++) {
         printf("Running: %s\n", suite->tests[i].name);
-        suite->tests[i].test_func();
-        suite->passed++;
+        
+        if (setjmp(__test_jmp_buf) == 0) {
+            /* Normal execution — run the test.
+             * If an ASSERT fails, it calls longjmp which lands here with value != 0 */
+            suite->tests[i].test_func();
+            suite->passed++;
+        } else {
+            /* Returned via longjmp from a failed ASSERT */
+            suite->failed++;
+        }
     }
 }
 

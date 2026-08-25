@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <setjmp.h>
 
 typedef struct {
     const char* name;
@@ -28,12 +29,15 @@ typedef struct {
     uint32_t failed;
 } test_suite_t;
 
-// Test assertion macros
+/* jmp_buf for ASSERT macros to longjmp back to the test runner */
+extern jmp_buf __test_jmp_buf;
+
+/* Test assertion macros — use longjmp so the test runner tracks failures */
 #define ASSERT(condition, message) \
     do { \
         if (!(condition)) { \
             printf("FAIL: %s - %s\n", __func__, message); \
-            return; \
+            longjmp(__test_jmp_buf, 1); \
         } \
     } while(0)
 
@@ -43,7 +47,7 @@ typedef struct {
             printf("FAIL: %s - %s (expected: %llu, actual: %llu)\n", \
                    __func__, message, (unsigned long long)(expected), \
                    (unsigned long long)(actual)); \
-            return; \
+            longjmp(__test_jmp_buf, 1); \
         } \
     } while(0)
 
@@ -52,7 +56,7 @@ typedef struct {
         if ((expected) == (actual)) { \
             printf("FAIL: %s - %s (values should not be equal: %llu)\n", \
                    __func__, message, (unsigned long long)(expected)); \
-            return; \
+            longjmp(__test_jmp_buf, 1); \
         } \
     } while(0)
 
@@ -61,15 +65,16 @@ typedef struct {
         if ((ptr) != NULL) { \
             printf("FAIL: %s - %s (expected NULL, got %p)\n", \
                    __func__, message, (void*)(ptr)); \
-            return; \
+            longjmp(__test_jmp_buf, 1); \
         } \
     } while(0)
 
 #define ASSERT_NOT_NULL(ptr, message) \
     do { \
         if ((ptr) == NULL) { \
-            printf("FAIL: %s - %s (expected non-NULL)\n", __func__, message); \
-            return; \
+            printf("FAIL: %s - %s (expected non-NULL)\n", \
+                   __func__, message); \
+            longjmp(__test_jmp_buf, 1); \
         } \
     } while(0)
 
@@ -79,7 +84,7 @@ typedef struct {
         return; \
     } while(0)
 
-// Test framework functions
+/* Test framework functions */
 void test_suite_init(test_suite_t* suite, const char* name);
 void test_suite_add_test(test_suite_t* suite, const char* name, void (*test_func)(void));
 void test_suite_run(test_suite_t* suite);

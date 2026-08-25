@@ -59,8 +59,8 @@ void test_cpu_context_structure(void) {
     ASSERT_EQ(ctx.rsp, 0x7FFFFF000, "RSP register should be accessible");
     ASSERT_EQ(ctx.rflags, 0x202, "RFLAGS register should be accessible");
     
-    // Test structure size (should contain all general-purpose registers)
-    ASSERT_EQ(sizeof(cpu_context_t), 144, "CPU context should be 144 bytes");
+    // Test structure size (20 x uint64_t = 160 bytes)
+    ASSERT_EQ(sizeof(cpu_context_t), 160, "CPU context should be 160 bytes");
     
     TEST_PASS();
 }
@@ -258,7 +258,7 @@ void test_process_function_pointer(void) {
     
     // Test with a dummy function
     void dummy_process(void* arg) {
-        // Dummy process function
+        (void)arg; // unused parameter
     }
     
     process_entry_t entry_func = dummy_process;
