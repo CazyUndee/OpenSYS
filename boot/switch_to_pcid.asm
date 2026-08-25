@@ -206,3 +206,5 @@ g_pcid_supported:
     dq 0
 g_current_process:
     dq 0
+
+section .note.GNU-stack noalloc noexec nowrite progbits

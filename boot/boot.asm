@@ -64,6 +64,8 @@ section .boot
 bits 32
 global _start
 extern kernel_main
+extern bss_start
+extern kernel_end
 
 _start:
     ; Set up stack
@@ -71,6 +73,19 @@ _start:
 
     ; Clear direction flag
     cld
+
+    ; Zero the BSS (all zero-initialized statics) before any C code runs.
+    ; The multiboot header declares bss_end_addr = 0, so neither QEMU nor
+    ; GRUB zeroes it, and the raw-loaded ELF debug sections overwrite it.
+    ; Without this, every static variable in the kernel starts as garbage
+    ; (this caused the keyboard ring-buffer garbage and the original
+    ; 32->64 transition crash from garbage page tables).
+    mov edi, bss_start
+    xor eax, eax
+    mov ecx, kernel_end
+    sub ecx, edi
+    shr ecx, 2
+    rep stosd
 
     ; Save multiboot info FIRST (before any register modifications!)
     ; EBX = multiboot info pointer, EAX = magic (0x2BADB002)
@@ -122,6 +137,15 @@ check_long_mode:
     jmp $
 
 setup_page_tables:
+    ; Zero the three page-table pages (pml4, pdpt, pd) so no stale
+    ; entries remain in the uninitialized BSS. Only the entries below
+    ; are populated; a stale present bit in any other slot would make
+    ; the CPU walk garbage on address translation.
+    mov edi, pml4
+    xor eax, eax
+    mov ecx, (4096 * 3) / 4
+    rep stosd
+
     ; Map PML4[0] -> PDPT
     mov eax, pdpt
     or eax, 0b11

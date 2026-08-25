@@ -123,8 +123,9 @@ irq_common:
     push r14
     push r15
 
-    ; Get IRQ number
-    mov rax, [rsp + 15*8 + 8]
+    ; Get IRQ number (pushed by the IRQ stub at [rsp + 15*8];
+    ; [rsp + 15*8 + 8] is the dummy error code and is always 0)
+    mov rax, [rsp + 15*8]
 
     ; IRQ0 - Timer (calls scheduler)
     cmp rax, 32

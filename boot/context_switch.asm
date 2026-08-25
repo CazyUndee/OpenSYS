@@ -1,6 +1,11 @@
 ; context_switch.asm - Context Switching for x86_64
 ;
 ; void context_switch(cpu_context_t* old_ctx, cpu_context_t* new_ctx)
+;
+; NOTE: This is wired to the scheduler but preemptive switching is currently
+; disabled at boot (the timer IRQ0 stays masked and the shell runs inline in
+; kernel_main).  WHPX mishandles the iretq used here (verified #GP with a
+; byte-perfect frame), so this path is dormant until that is resolved.
 
 section .text
 bits 64
@@ -31,22 +36,24 @@ context_switch:
     mov [rdi + 104], r14
     mov [rdi + 112], r15
 
-    ; Save RIP and flags (we'll return after restore)
+    ; Save RIP (return address of context_switch call)
     mov rax, [rsp]
     mov [rdi + 120], rax       ; rip
     add rsp, 8
-    
-    mov rax, [rsp + 8]         ; cs
-    mov [rdi + 128], rax
 
+    ; Save RFLAGS
     pushfq
     pop qword [rdi + 136]      ; rflags
 
+    ; Save RSP (stack pointer after popping the return address)
     mov rax, rsp
     mov [rdi + 144], rax       ; rsp
 
-    mov ax, ss
-    mov [rdi + 152], ax        ; ss
+    ; Hardcode CS and SS — in 64-bit long mode, kernel code and stack
+    ; segment selectors are always 0x08 and 0x10.  The old code read
+    ; [rsp + 8] which was garbage (64-bit CALL pushes only RIP, not CS).
+    mov qword [rdi + 128], 0x08  ; cs = kernel code segment
+    mov word [rdi + 152], 0x10   ; ss = kernel stack segment
 
 .load_new:
     ; Load new context
@@ -75,7 +82,7 @@ context_switch:
 
     ; Restore remaining registers
     mov rsi, [rsi + 32]
-    
+
     iretq
 
 .done:
