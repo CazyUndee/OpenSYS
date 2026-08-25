@@ -33,7 +33,8 @@ static void setup_two_partitions(void) {
     mock_disk_set_ready(1);
     mock_gpt_setup(t, 2);
     part_init();
-    ASSERT(part_is_ready() == 1, "partition layer ready");
+    volume_use_whole_disk();   /* isolate from other suites' volume state */
+    ASSERT(part_is_ready() == 1, "partition layer ready for volume tests");
 }
 
 static void test_selection_and_validation(void) {
