@@ -93,13 +93,6 @@ typedef enum {
     INTENT_SUSPEND,
     INTENT_DEBUG_INFO,
     
-    // File system
-    INTENT_CREATE_FILE = 500,
-    INTENT_DELETE_FILE,
-    INTENT_READ_FILE,
-    INTENT_WRITE_FILE,
-    INTENT_LIST_DIRECTORY,
-    
     // Process management
     INTENT_START_PROCESS = 600,
     INTENT_STOP_PROCESS,

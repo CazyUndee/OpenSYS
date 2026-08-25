@@ -47,8 +47,6 @@ command_result_t cmd_close_window(const char* window_id);
 command_result_t cmd_move_window(const char* window_id, int x, int y);
 command_result_t cmd_focus_window(const char* window_id);
 command_result_t cmd_list_windows(void);
-command_result_t cmd_list_processes(void);
-command_result_t cmd_show_system_info(void);
 
 // Initialize command system
 void ui_command_init(void);

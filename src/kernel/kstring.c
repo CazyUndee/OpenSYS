@@ -26,3 +26,22 @@ void k_strcpy(char* dst, const char* src) {
     while (*src) *dst++ = *src++;
     *dst = 0;
 }
+
+char* k_strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    while (*haystack) {
+        const char* h = haystack;
+        const char* n = needle;
+        while (*h && *n && *h == *n) { h++; n++; }
+        if (!*n) return (char*)haystack;
+        haystack++;
+    }
+    return 0;
+}
+
+char* k_trim(char* s) {
+    while (*s == ' ') s++;
+    char* end = s + k_strlen(s) - 1;
+    while (end > s && *end == ' ') *end-- = 0;
+    return s;
+}

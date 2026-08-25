@@ -127,18 +127,6 @@ int check_acl(uint32_t process_id, uint32_t intent_type) {
 // Global current working directory (process-shared for v0.5.0)
 static char g_cwd[256] = "/";
 
-static const char* k_strstr(const char* hay, const char* needle) {
-    if (!*needle) return hay;
-    while (*hay) {
-        const char* h = hay;
-        const char* n = needle;
-        while (*h && *n && *h == *n) { h++; n++; }
-        if (!*n) return hay;
-        hay++;
-    }
-    return 0;
-}
-
 // Search state for callback
 static const char* search_pattern = 0;
 static int search_match_count = 0;

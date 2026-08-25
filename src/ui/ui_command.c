@@ -25,26 +25,6 @@
 #include <stdint.h>
 #include "kstring.h"
 
-static char* k_strstr(const char* haystack, const char* needle) {
-    while (*haystack) {
-        const char* h = haystack;
-        const char* n = needle;
-        while (*n && *h == *n) {
-            h++; n++;
-        }
-        if (!*n) return (char*)haystack;
-        haystack++;
-    }
-    return NULL;
-}
-
-static char* trim(char* s) {
-    while (*s == ' ') s++;
-    char* end = s + k_strlen(s) - 1;
-    while (end > s && *end == ' ') *end-- = 0;
-    return s;
-}
-
 // Parse natural language command into intent
 command_result_t ui_command_parse(const char* command) {
     command_result_t result = {0};
@@ -59,7 +39,7 @@ command_result_t ui_command_parse(const char* command) {
     // Make a working copy
     char cmd[256];
     k_strcpy(cmd, command);
-    char* trimmed = trim(cmd);
+    char* trimmed = k_trim(cmd);
     
     // Parse window commands
     if (k_strstr(trimmed, "open window") || k_strstr(trimmed, "open application")) {
@@ -147,12 +127,6 @@ command_result_t ui_command_parse(const char* command) {
     }
     else if (k_strstr(trimmed, "list windows") || k_strstr(trimmed, "show windows")) {
         result = cmd_list_windows();
-    }
-    else if (k_strstr(trimmed, "list processes") || k_strstr(trimmed, "show processes")) {
-        result = cmd_list_processes();
-    }
-    else if (k_strstr(trimmed, "system information") || k_strstr(trimmed, "show system")) {
-        result = cmd_show_system_info();
     }
     else {
         k_strcpy(result.error, "Unknown command");
@@ -340,60 +314,6 @@ command_result_t cmd_list_windows(void) {
     
     if (count == 0) {
         terminal_writestring_nl("  (no windows open)");
-    }
-    
-    return result;
-}
-
-command_result_t cmd_list_processes(void) {
-    command_result_t result = {0};
-    result.success = 1;
-    
-    ui_state_t* state = ui_state_get();
-    
-    terminal_writestring_nl("Running Processes:");
-    terminal_writestring_nl("-----------------");
-    
-    int count = 0;
-    for (int i = 0; i < MAX_PROCESSES; i++) {
-        ui_process_t* proc = &state->processes[i];
-        if (proc->name[0] && proc->active) {
-            terminal_writestring("  PID ");
-            terminal_put_dec(proc->pid);
-            terminal_writestring(" - ");
-            terminal_writestring_nl(proc->name);
-            count++;
-        }
-    }
-    
-    if (count == 0) {
-        terminal_writestring_nl("  (no processes running)");
-    }
-    
-    return result;
-}
-
-command_result_t cmd_show_system_info(void) {
-    command_result_t result = {0};
-    result.success = 1;
-    
-    ui_state_t* state = ui_state_get();
-    
-    terminal_writestring_nl("System Information:");
-    terminal_writestring_nl("------------------");
-    terminal_writestring("Windows: ");
-    terminal_put_dec(state->window_count);
-    terminal_writestring_nl("");
-    terminal_writestring("Nodes: ");
-    terminal_put_dec(state->node_count);
-    terminal_writestring_nl("");
-    terminal_writestring("Processes: ");
-    terminal_put_dec(state->process_count);
-    terminal_writestring_nl("");
-    
-    if (state->focus.window_id[0]) {
-        terminal_writestring("Focused Window: ");
-        terminal_writestring_nl(state->focus.window_id);
     }
     
     return result;

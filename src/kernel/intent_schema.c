@@ -30,16 +30,6 @@ static const role_spec_t roles_title[] = {
     { ROLE_SOURCE_FILE, ROLE_ATTR_NONE, "title", "string" },
 };
 
-// Single file path (create, delete, read)
-static const role_spec_t roles_file_path[] = {
-    { ROLE_SOURCE_FILE, ROLE_ATTR_REQUIRED, "file path", "path" },
-};
-
-// Single path (file content write — param1 = path, param2 = content)
-static const role_spec_t roles_file_write[] = {
-    { ROLE_SOURCE_FILE, ROLE_ATTR_REQUIRED, "file path", "path" },
-};
-
 // Text content (no path — param1 = text string)
 static const role_spec_t roles_text[] = {
     { ROLE_PATTERN, ROLE_ATTR_REQUIRED, "text", "string" },
@@ -259,43 +249,6 @@ const intent_schema_t INTENT_SCHEMAS[INTENT_TYPE_COUNT] = {
         .description = "Display kernel debug information"
     },
 
-    // --- File system (500-504) ---
-    [INTENT_CREATE_FILE] = {
-        .roles = roles_file_path,
-        .role_count = 1,
-        .domain = DOMAIN_VFS,
-        .effect = EFFECT_WRITE,
-        .description = "Create a new empty file"
-    },
-    [INTENT_DELETE_FILE] = {
-        .roles = roles_file_path,
-        .role_count = 1,
-        .domain = DOMAIN_VFS,
-        .effect = EFFECT_DELETE,
-        .description = "Delete a file"
-    },
-    [INTENT_READ_FILE] = {
-        .roles = roles_file_path,
-        .role_count = 1,
-        .domain = DOMAIN_VFS,
-        .effect = EFFECT_READ,
-        .description = "Read and display the contents of a file"
-    },
-    [INTENT_WRITE_FILE] = {
-        .roles = roles_file_write,
-        .role_count = 1,
-        .domain = DOMAIN_VFS,
-        .effect = EFFECT_WRITE,
-        .description = "Write content to a file"
-    },
-    [INTENT_LIST_DIRECTORY] = {
-        .roles = roles_none,
-        .role_count = 0,
-        .domain = DOMAIN_VFS,
-        .effect = EFFECT_READ,
-        .description = "List all files in the current directory"
-    },
-
     // --- Process management (600-603) ---
     [INTENT_START_PROCESS] = {
         .roles = roles_process,
@@ -430,12 +383,6 @@ const char* intent_name(intent_type_t type) {
         case INTENT_REBOOT:     return "reboot";
         case INTENT_SUSPEND:    return "suspend";
         case INTENT_DEBUG_INFO: return "debug_info";
-        // File system (original)
-        case INTENT_CREATE_FILE:    return "create_file";
-        case INTENT_DELETE_FILE:    return "delete_file";
-        case INTENT_READ_FILE:      return "read_file";
-        case INTENT_WRITE_FILE:     return "write_file";
-        case INTENT_LIST_DIRECTORY: return "list_directory";
         // Process
         case INTENT_START_PROCESS:  return "start_process";
         case INTENT_STOP_PROCESS:   return "stop_process";
