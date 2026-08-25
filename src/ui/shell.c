@@ -1285,6 +1285,8 @@ terminal_writestring_nl(" ping <addr> - ping an address");
     terminal_writestring_nl("    ps                - list processes (alias for show processes)");
     terminal_writestring_nl("    parts             - list GPT partitions");
     terminal_writestring_nl("    ns <path>         - describe a namespace resource (0/...)");
+    terminal_writestring_nl("    Paths accept the Plan0 namespace: <vol> = 0/hsh/partitions/1");
+    terminal_writestring_nl("    e.g. cat 0/user/notes.txt, write hi to 0/hsh/partitions/1/a.txt");
     terminal_writestring_nl("    reboot            - reboot the system");
     terminal_writestring_nl("    shutdown          - shutdown the system");
     terminal_writestring_nl("    whoami            - show current user");
@@ -1612,7 +1614,44 @@ static void cmd_chmod(const char* arg1, const char* arg2) {
 
 /* Dispatch a canonical (verb, arg1, arg2) triple. Used both by the plain
  * token-based parser and by the natural-language parser (nl_parser.c). */
+
+/* Human-readable errors for namespace argument translation. */
+static void ns_arg_error(int rc) {
+    if (rc == NS_FS_EPARSE) {
+        terminal_writestring_nl("  Error: invalid namespace path syntax");
+    } else if (rc == NS_FS_EUNKNOWN) {
+        terminal_writestring_nl("  Error: unknown namespace resource");
+    } else if (rc == NS_FS_EVOLUME) {
+        terminal_writestring_nl("  Error: storage volume not mounted");
+    } else {
+        terminal_writestring_nl("  Error: resource has no filesystem");
+    }
+}
+
 static void dispatch(char* cmd, char* arg1, char* arg2) {
+    /* Namespace-aware arguments: translate 0/... paths into filesystem
+     * paths before handlers see them (docs/NAMESPACE.md §12). Legacy
+     * /-rooted arguments pass through untouched; `ns` consumes raw
+     * namespace paths natively. Translated output is never longer than
+     * the input, so in-place replacement is safe. */
+    if (!cmd_equals(cmd, "ns")) {
+        char tbuf[256];
+        int rc = ns_to_fs_path(arg1 ? arg1 : "", tbuf, sizeof(tbuf));
+        if (rc == NS_FS_OK) {
+            k_strcpy(arg1, tbuf);
+        } else if (rc < 0) {
+            ns_arg_error(rc);
+            return;
+        }
+        rc = ns_to_fs_path(arg2 ? arg2 : "", tbuf, sizeof(tbuf));
+        if (rc == NS_FS_OK) {
+            k_strcpy(arg2, tbuf);
+        } else if (rc < 0) {
+            ns_arg_error(rc);
+            return;
+        }
+    }
+
     /* Multi-word commands — matched token-wise BEFORE their single-token
      * prefixes so that e.g. "move window 1 10 20" does not hit "move". */
     if (cmd_equals(cmd, "open") && (k_strcmp(arg1, "window") == 0 || k_strcmp(arg1, "application") == 0)) {

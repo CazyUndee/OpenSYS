@@ -61,4 +61,25 @@ int ns_describe(const char* path, char* out, size_t max);
 /* Grammar check only (no classification). 0 = well-formed. */
 int ns_parse_valid(const char* path);
 
+/* ---- Shell argument translation (spec §12) ----
+ *
+ * Translate one shell path argument into a filesystem path.
+ *
+ * Returns:
+ *   NS_FS_OK        ( 0)  out holds the fs path ("/" for a volume root)
+ *   NS_FS_NOT_NS    ( 1)  not a namespace path — caller passes through
+ *   NS_FS_EPARSE    (-1)  invalid namespace syntax
+ *   NS_FS_EUNKNOWN  (-2)  grammatically valid, no such resource
+ *   NS_FS_EVOLUME   (-3)  addresses a volume other than the mounted one
+ *   NS_FS_EKIND     (-4)  resource kind carries no filesystem
+ */
+#define NS_FS_OK       0
+#define NS_FS_NOT_NS   1
+#define NS_FS_EPARSE  (-1)
+#define NS_FS_EUNKNOWN (-2)
+#define NS_FS_EVOLUME (-3)
+#define NS_FS_EKIND   (-4)
+
+int ns_to_fs_path(const char* input, char* out, size_t max);
+
 #endif /* NS_H */

@@ -18,6 +18,7 @@
 #include "pmm.h"
 #include "part.h"
 #include "disk.h"
+#include "volume.h"
 
 /* ================================================================
  * Alias table — pure renames. Expansion happens BEFORE classification
@@ -212,11 +213,18 @@ int ns_resolve(const char* path, ns_resource_t* out) {
         if (k_strcmp(comps[2], "storage") == 0) {
             if (n == 3) { set_resource(out, NS_HARDWARE_DIR, out->domain, -1, 0); return 0; }
 
+            /* Topology honesty: a storage class exists only when the
+             * detected device actually belongs to it (single-device
+             * until multi-device support lands). */
+            const char* owner = part_storage_device();
             const char* dev = 0;
             if (k_strcmp(comps[3], "hdd") == 0) dev = "hdd";
             else if (k_strcmp(comps[3], "ssd") == 0) dev = "ssd";
 
-            if (!dev) { out->kind = NS_UNRESOLVED; return -2; }
+            if (!dev || !owner || k_strcmp(dev, owner) != 0) {
+                out->kind = NS_UNRESOLVED;
+                return -2;
+            }
 
             if (n == 4) {
                 set_resource(out, NS_STORAGE_DEVICE, out->domain, -1, dev);
@@ -228,12 +236,15 @@ int ns_resolve(const char* path, ns_resource_t* out) {
                     set_resource(out, NS_PARTITIONS_DIR, out->domain, -1, dev);
                     return 0;
                 }
-                if (n == 6) {
+                if (n >= 6) {
                     int idx;
                     if (parse_index(comps[5], &idx) < 0) {
                         out->kind = NS_UNRESOLVED;
                         return -2;
                     }
+                    /* The partition resource covers its whole volume-
+                     * relative tree: anything at depth > 6 is content
+                     * within the volume and still resolves here. */
                     set_resource(out, NS_PARTITION, out->domain, idx, dev);
                     return 0;
                 }
@@ -337,8 +348,7 @@ static void describe_storage_facts(struct desc_buf* d) {
     }
 }
 
-int ns_describe(const char* path, char* out, size_t max) {
-    ns_resource_t r;
+int ns_describe(const char* path, char* out, size_t max) {    ns_resource_t r;
     int rc = ns_resolve(path, &r);
     if (rc < 0) return rc;
 
@@ -403,4 +413,71 @@ int ns_describe(const char* path, char* out, size_t max) {
     }
 
     return 0;
+}
+
+/* ================================================================
+ * Shell argument translation (spec §12)
+ *
+ * Namespace paths map onto the single mounted filesystem volume:
+ *   <device>/partitions/<n>/rest  ->  /rest   (only when n is the
+ *                                              bound/mounted volume)
+ *   0/user/rest                   ->  /rest   (logical user root;
+ *                                              v1 binds the active fs)
+ * Everything else either passes through (not a namespace path) or
+ * fails with a structured error. Output is never longer than input:
+ * every mapping strips a >=2-char prefix and adds at most one '/'.
+ * ================================================================ */
+
+/* Advance past n '/'-separated components of a canonical path. */
+static const char* skip_components(const char* s, int n) {
+    while (n-- > 0) {
+        while (*s && *s != '/') s++;
+        if (*s == '/') s++;
+    }
+    return s;
+}
+
+int ns_to_fs_path(const char* input, char* out, size_t max) {
+    if (!input || !out || max == 0) return NS_FS_EPARSE;
+
+    /* Pass-through: anything not shaped "<digit>/" is legacy syntax. */
+    if (!(input[0] >= '0' && input[0] <= '9') || input[1] != '/') {
+        return NS_FS_NOT_NS;
+    }
+
+    ns_resource_t r;
+    int rc = ns_resolve(input, &r);
+#ifdef NS_TRANSLATE_DEBUG
+    {
+        extern int printf(const char*, ...);
+        printf("DBG resolve(%s) rc=%d kind=%d canon=%s\n",
+               input, rc, (int)r.kind, r.canonical);
+    }
+#endif
+    if (rc == -1) return NS_FS_EPARSE;
+    if (rc == -2) return NS_FS_EUNKNOWN;
+
+    const char* rest = 0;
+
+    if (r.kind == NS_PARTITION) {
+        /* Only the mounted volume is file-addressable. */
+        part_info_t list[16];
+        int count = part_list_partitions(list, 16);
+        if (r.part_index > count ||
+            list[r.part_index - 1].start_lba != volume_base_lba() ||
+            volume_base_lba() == 0) {
+            return NS_FS_EVOLUME;
+        }
+        rest = skip_components(r.canonical, 6);   /* 0/hardware/storage/dev/partitions/N */
+    } else if (r.kind == NS_USER_STORE) {
+        rest = skip_components(r.canonical, 2);   /* 0/user */
+    } else {
+        return NS_FS_EKIND;
+    }
+
+    size_t need = 1 + k_strlen(rest) + 1;         /* '/' + rest + NUL */
+    if (need > max) return NS_FS_EPARSE;
+    out[0] = '/';
+    k_strcpy(out + 1, rest);
+    return NS_FS_OK;
 }
