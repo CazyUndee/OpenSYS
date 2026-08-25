@@ -43,6 +43,7 @@
 #include "vfile.h"
 #include "part.h"
 #include "disk.h"
+#include "ns.h"
 #include "version.h"
 
 #define MAX_CMD_LEN 256
@@ -324,6 +325,34 @@ static void cmd_ps(void) {
     terminal_put_dec(count);
     terminal_writestring_nl(" processes total");
     terminal_writestring_nl("");
+}
+
+/* ---- ns: namespace introspection ----
+ * Describes what a Plan0 namespace path is: canonical form, alias links,
+ * resource kind, and live backend facts (docs/NAMESPACE.md). */
+static void cmd_ns(const char* path) {
+    char text[1024];
+    int rc = ns_describe(path, text, sizeof(text));
+    terminal_writestring_nl("");
+    if (rc == -1) {
+        terminal_writestring("  Error: invalid path syntax");
+        return;
+    }
+    if (rc == -2) {
+        terminal_writestring_nl("  Unknown resource");
+        return;
+    }
+    /* Print the multiline description with the shell's two-space indent. */
+    const char* p = text;
+    while (*p) {
+        terminal_writestring("  ");
+        char line[128];
+        int i = 0;
+        while (*p && *p != '\n' && i < 127) line[i++] = *p++;
+        if (*p == '\n') p++;
+        line[i] = '\0';
+        terminal_writestring_nl(line);
+    }
 }
 
 /* ---- partitions: show partitions / parts ----
@@ -1255,6 +1284,7 @@ terminal_writestring_nl(" ping <addr> - ping an address");
     terminal_writestring_nl("    df                - disk free (filesystem usage)");
     terminal_writestring_nl("    ps                - list processes (alias for show processes)");
     terminal_writestring_nl("    parts             - list GPT partitions");
+    terminal_writestring_nl("    ns <path>         - describe a namespace resource (0/...)");
     terminal_writestring_nl("    reboot            - reboot the system");
     terminal_writestring_nl("    shutdown          - shutdown the system");
     terminal_writestring_nl("    whoami            - show current user");
@@ -1782,6 +1812,9 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
     else if (cmd_equals(cmd, "parts")) {
         cmd_parts();
+    }
+    else if (cmd_equals(cmd, "ns")) {
+        cmd_ns(arg1);
     }
     else if (cmd_equals(cmd, "pipe")) {
         cmd_pipe();
