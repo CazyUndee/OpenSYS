@@ -139,6 +139,7 @@ try:
     checks.append(("canonical path reveals its alias", ok, w.tail(400)))
 
     ok = w.type_and_wait("ns 0/hardware/memory/ram\n", "system memory")
+    time.sleep(1.5)   # let the multi-line description finish printing
     out = w.tail(400)
     ok = ok and "total mb:" in out
     checks.append(("memory ram reports totals", ok, out))

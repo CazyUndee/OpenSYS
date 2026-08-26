@@ -45,3 +45,7 @@ __pycache__/
 TAGS
 tags
 cscope.*
+
+# Freebuff local agent state
+.freebuff/
+agent/
