@@ -117,7 +117,12 @@ int part_get_info(int partition_num, part_info_t* info) {
     
     const gpt_entry_t* part = gpt_get_partition((uint32_t)partition_num);
     if (!part) return -1;
-    
+
+    /* Security: LBAs are DISK bytes. An inverted entry (end < start)
+     * used to wrap the size computation into a near-2^64 value that
+     * defeated every range check downstream. */
+    if (part->end_lba < part->start_lba) return -1;
+
     info->partition_number = partition_num;
     info->type = part_classify_type(part->type_guid);
     info->start_lba = part->start_lba;
@@ -157,7 +162,8 @@ static int part_translate(int partition_num, uint64_t start_lba, size_t sectors,
     
     const gpt_entry_t* part = gpt_get_partition((uint32_t)partition_num);
     if (!part) return -1;
-    
+    if (part->end_lba < part->start_lba) return -1;   /* inverted entry */
+
     uint64_t part_sectors = part->end_lba - part->start_lba + 1;
     if (start_lba >= part_sectors) return -1;
     if ((uint64_t)sectors > part_sectors - start_lba) return -1;

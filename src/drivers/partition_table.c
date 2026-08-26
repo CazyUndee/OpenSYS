@@ -72,22 +72,41 @@ int gpt_read_header(void) {
     }
 #endif
     
-    /* Allocate memory for entries */
+    /* Allocate memory for entries.
+     * Security: entry_count and entry_size are DISK bytes. The old code
+     * computed their product in 32-bit (wrappable to a tiny allocation
+     * while keeping a huge partition_count -> mass OOB reads) and never
+     * enforced the GPT limits. Validate everything before allocating. */
+    if (gpt_header->entry_size != 128) return -1;          /* UEFI spec size */
+    if (gpt_header->entry_count == 0 ||
+        gpt_header->entry_count > GPT_MAX_PARTITIONS) return -1;
+    if (gpt_header->entry_array_lba == 0 ||
+        gpt_header->entry_array_lba > 0xFFFFFFULL) return -1;   /* LBA28 reach */
+
     partition_count = gpt_header->entry_count;
-    uint32_t entry_array_size = partition_count * gpt_header->entry_size;
-    uint32_t entry_sectors = (entry_array_size + ATA_SECTOR_SIZE - 1) / ATA_SECTOR_SIZE;
-    
-    if (!gpt_entries) {
-        gpt_entries = (gpt_entry_t*)kmalloc(entry_sectors * ATA_SECTOR_SIZE);
-        if (!gpt_entries) return -1;
+    uint64_t entry_array_size = (uint64_t)partition_count * gpt_header->entry_size;
+    uint32_t entry_sectors = (uint32_t)((entry_array_size + ATA_SECTOR_SIZE - 1) / ATA_SECTOR_SIZE);
+
+    /* Reallocate when the table grows across re-inits; never reuse a
+     * smaller buffer with a larger count. */
+    static uint32_t allocated_entries = 0;
+    if (!gpt_entries || allocated_entries < partition_count) {
+        if (gpt_entries) kfree(gpt_entries);
+        gpt_entries = (gpt_entry_t*)kmalloc((size_t)entry_array_size);
+        if (!gpt_entries) {
+            partition_count = 0;
+            allocated_entries = 0;
+            return -1;
+        }
+        allocated_entries = partition_count;
     }
-    
+
     /* Read entry array */
     uint64_t entry_lba = gpt_header->entry_array_lba;
     if (disk_read((uint32_t)entry_lba, entry_sectors, gpt_entries) < 0) {
         return -1;
     }
-    
+
     return 0;
 }
 
