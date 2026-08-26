@@ -158,6 +158,37 @@ static void test_part_list_partitions_dense(void) {
     TEST_PASS();
 }
 
+/* Security regression: an inverted entry (end_lba < start_lba) comes
+ * straight from a hostile image and once wrapped the size computation
+ * into ~2^64 sectors, defeating every range check downstream. */
+static void test_part_inverted_entry_rejected(void) {
+    gpt_entry_t t[1];
+    memset(t, 0, sizeof(t));
+    memcpy(t[0].type_guid, GPT_TYPE_LINUX_FS, 16);
+    t[0].start_lba = 4096;
+    t[0].end_lba   = 2048;                     /* inverted! */
+
+    mock_disk_set_ready(1);
+    mock_gpt_setup(t, 1);
+    mock_disk_io_reset();
+    part_init();
+
+    part_info_t info;
+    ASSERT(part_get_info(0, &info) < 0, "inverted entry has no info");
+
+    uint8_t buf[512];
+    ASSERT(part_read_sectors(0, 0, buf, 1) < 0, "inverted entry is unreadable");
+    ASSERT(part_write_sectors(0, 0, buf, 1) < 0, "inverted entry is unwritable");
+
+    int calls;
+    mock_disk_last_io(0, 0, 0, &calls);
+    ASSERT_EQ(calls, 0, "inverted entries never touch the disk");
+
+    part_info_t list[4];
+    ASSERT(part_list_partitions(list, 4) == 0, "inverted entry not listed");
+    TEST_PASS();
+}
+
 test_suite_t* create_part_test_suite(void) {
     static test_suite_t suite;
     test_suite_init(&suite, "Partition Manager (GPT)");
@@ -170,6 +201,7 @@ test_suite_t* create_part_test_suite(void) {
     test_suite_add_test(&suite, "part_requires_ready", test_part_requires_ready);
     test_suite_add_test(&suite, "part_get_info_fields", test_part_get_info_fields);
     test_suite_add_test(&suite, "part_list_partitions_dense", test_part_list_partitions_dense);
+    test_suite_add_test(&suite, "part_inverted_entry_rejected", test_part_inverted_entry_rejected);
 
     return &suite;
 }

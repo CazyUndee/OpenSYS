@@ -262,6 +262,13 @@ static void test_fs_path_errors(void) {
            "memory ram translates");
     ASSERT(strcmp(out, "/0/hardware/memory/ram") == 0, "ram maps under /0");
 
+    /* Security regression: alias expansion GROWS paths (0/hmr -> long
+     * canonical). A too-small caller buffer must be refused cleanly,
+     * never truncated mid-component or silently passed through. */
+    char small[8];
+    ASSERT(ns_to_fs_path("0/hmr", small, sizeof(small)) == NS_FS_EPARSE,
+           "capacity overflow is a clean parse error");
+
     ASSERT(ns_to_fs_path("garbage", out, sizeof(out)) == NS_FS_NOT_NS,
            "non-namespace input passes through (not a parse error)");
     ASSERT(ns_to_fs_path("0//x", out, sizeof(out)) == NS_FS_EPARSE,
