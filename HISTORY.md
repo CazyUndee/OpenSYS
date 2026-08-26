@@ -1,5 +1,41 @@
 # HISTORY.md — Objective Chronological Archive
 
+## 2026-08-25 — Security Research Loop: hostile-disk/parser hardening (5-agent audit)
+
+### Context
+Cybersecurity loop over the freshly landed namespace/volume/partition stack. Team: surface-hunter, auth-data-hunter, runtime-supply-hunter + two PoC engineers (both PoC agents were lost to provider failures; lead performed verification directly against the host harness — deviation from the skill's Phase 2 noted here).
+
+### Findings triaged and FIXED (all attacker source = hostile disk image attached via `-drive`, or serial shell input)
+
+1. **GPT header 32-bit wrap** (critical): `entry_count × entry_size` wrapped in u32 → undersized entries buffer while `partition_count` stayed huge → mass OOB reads feeding type-GUID matches at boot. Also unvalidated `entry_size`, unbounded `entry_count`, u64→u32 LBA truncation, stale buffer reuse on re-init. Fix: enforce `entry_size == 128`, `1 ≤ entry_count ≤ 128` (spec limit), `entry_array_lba ∈ [1, 0xFFFFFF]`, 64-bit sizing, explicit reallocation. *(partition_table.c)*
+2. **Inverted GPT entry** (medium→high impact): `end_lba < start_lba` wrapped size to ~2^64 sectors defeating all range checks; `gpt_read_partition` had no checks at all. Fix: inversion rejected in `part_get_info`, `part_translate`, and `gpt_read_partition`. *(part.c, partition_table.c; regression test with inverted-entry fixture)*
+3. **remove_index_entry negative-length wrap** (critical): matched entry's DISK length used before validation → negative ptrdiff cast to u32 → ~4GB heap write on unlink/rmdir/rename against a crafted directory. Fix: length validated before use; corrupt lengths truncate the index at that entry instead of compacting. *(fs.c)*
+4. **find_attr unclamped walk** (high, root enabler): seq_attr_offset/used_size/attr->length trusted → OOB reads/writes inside MFT slots. Fix: walk window clamped to `[entry+header, entry+min(used,4096)]`, per-attr length must stay inside window. *(fs.c)*
+5. **add_dir_entry insert beyond slot** (high): disk-controlled index length pushed insert outside the 4096-byte slot → field writes + ATTR_END corrupted adjacent heap. Fix: walk end clamped to slot; insertion refused unless entry + end-marker fit. *(fs.c)*
+6. **fs_read resident underflow** (high): `length - sizeof(header)` underflow → huge data_size → adjacent-heap bytes returned to `cat`. Fix: minimum-length check + payload clamped to the slot + position guard. *(fs.c)*
+7. **fs_read non-resident unbounded runs walk** (high): allocated_size drove `runs[]` reads past the slot; garbage start_clusters became arbitrary LBA28 reads surfaced into file content. Fix: shared `nonresident_run_count()` helper bounds every runs[] walk by the attribute payload. *(fs.c)*
+8. **Same pattern in fs_truncate / fs_unlink / fs_write** (high): num_runs underflow (`last_vcn < start_vcn`) and absurd single-run lengths; fs_write counted existing clusters past capacity and wrote `runs[huge]`; resident→non-resident conversion copied disk-controlled `existing_size` into a 4 KiB stack buffer. Fixes: helper-bounded counts, underflow guards, absurd-run break, conversion copy clamped to slot. *(fs.c)*
+9. **fs_mount boot-sector trust** (critical, boot-time): `mft_size × MFT_ENTRY_SIZE` wrapped to 0 → kmalloc(0) → immediate heap smash; uninitialized mft_zone parsed as entries; unchecked bitmap size. Fix: geometry sanity gates (mft_size ≤ 4096, total_clusters cap, data_start sanity), 64-bit sizing, zeroed allocations. *(fs.c)*
+10. **fs_readdir index walk** (medium): no minimum-entry check before dereferencing the 321-byte struct + zero-length infinite loop. Fix: full-struct fit required per iteration; zero/garbage lengths break. *(fs.c)*
+11. **Shell alias-expansion overflow** (critical): `ns_to_fs_path` output GROWS for aliased inputs (`0/hmr` → `/0/hardware/memory/ram`, ~4×) while dispatch wrote results back into the line buffer claiming "never longer than input". Fix: dispatch is capacity-aware (callers pass true remaining space; oversized translations fail cleanly). *(shell.c, ns.h contract note)*
+12. **Unbounded name joins** (medium): list_callback / find_callback / path_join concatenated dir+name into fixed 256-byte buffers fed by attacker-length strings. Fix: bounded joins; overflows skip gracefully. *(shell.c, path_join callers)*
+13. **vfile self/fd parse + recursion** (low/medium): unbounded digit accumulation overflowed int; an fd holding another self/fd node recursed without limit. Fix: fd clamped to table range; chain depth capped at 2. *(vfile.c)*
+
+### Regression tests added
+- Inverted-entry rejection (part_get_info/read/write refuse, zero disk calls, not listed).
+- Translator capacity contract (small buffer → clean NS_FS_EPARSE) + system/dev/memory translation coverage.
+
+### Verification after hardening
+- Kernel build clean (0 compiler warnings).
+- Host suite: **168/168** (167 + inverted-entry regression).
+- QEMU/WHPX: `drive_vcat.py` **72/72**, `drive_parts.py` **13/13** (incl. image-inspection proofs), `drive_ns.py` **6/6**.
+
+### Residual risk (documented, not silently dropped)
+- Hostile-image unit tests for the fs.c MFT walkers would require compiling fs.c's internals against a content-serving disk mock (current harness mocks fs_* functionally instead); the walker fixes are covered by code-level proof + full functional regression batteries.
+- CRC validation in GPT remains disabled (`GPT_VALIDATE_CRC 0`) — integrity barrier absent by design decision, bounds now enforced regardless.
+- state_graph MFT loader shares fs.c helpers and inherits their new clamps; dedicated audit deferred.
+- Multi-instance PoC agents unavailable this run (provider failures); verification performed by lead against the host harness with clean-build discipline.
+
 ## 2026-08-25 — Agent Session: Namespace slice 4 — legacy virtual paths REMOVED (complete migration)
 
 ### Context
