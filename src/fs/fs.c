@@ -128,16 +128,27 @@ static uint64_t alloc_mft_entry(void) {
 
 /* Find attribute in MFT entry */
 static void* find_attr(mft_header_t* entry, uint32_t attr_type) {
-    uint8_t* ptr = (uint8_t*)entry + entry->seq_attr_offset;
-    uint8_t* end = (uint8_t*)entry + entry->used_size;
-    
-    while (ptr < end) {
+    /* Security: every offset/length here comes from DISK bytes. Clamp the
+     * walk window to the MFT slot so a hostile image can never make this
+     * loop read outside the entry (CWE-125 root enabler). */
+    uint8_t* base = (uint8_t*)entry;
+    uint32_t off = entry->seq_attr_offset;
+    uint32_t used = entry->used_size;
+    if (off < sizeof(mft_header_t) || off >= MFT_ENTRY_SIZE) return 0;
+    if (used < sizeof(mft_header_t) || used > MFT_ENTRY_SIZE) return 0;
+
+    uint8_t* ptr = base + off;
+    uint8_t* end = base + used;
+
+    while (ptr + sizeof(attr_header_t) <= end) {
         attr_header_t* attr = (attr_header_t*)ptr;
         if (attr->type == ATTR_END || attr->type == attr_type) {
             return (attr->type == attr_type) ? attr : 0;
         }
-        /* Guard against corrupt/garbage lengths to avoid an infinite walk */
+        /* Guard against corrupt/garbage lengths: minimum header size and
+         * the whole attribute must stay inside the walked window. */
         if (attr->length < sizeof(attr_header_t)) break;
+        if (ptr + attr->length > end) break;
         ptr += attr->length;
     }
     return 0;
@@ -150,6 +161,16 @@ static void* find_attr_payload(mft_header_t* entry, uint32_t attr_type) {
     attr_header_t* attr = (attr_header_t*)find_attr(entry, attr_type);
     if (!attr) return 0;
     return (void*)((uint8_t*)attr + sizeof(attr_header_t));
+}
+
+/* Security helper: how many data_run_t entries actually fit inside a
+ * non-resident attribute's payload. Every nr-> field is DISK bytes;
+ * this is the only safe way to size a walk over runs[]. */
+static uint64_t nonresident_run_count(const attr_header_t* attr,
+                                      const attr_nonresident_t* nr) {
+    if (nr->run_offset < sizeof(attr_header_t) + sizeof(attr_nonresident_t)) return 0;
+    if (nr->run_offset >= attr->length) return 0;
+    return (uint64_t)(attr->length - nr->run_offset) / sizeof(data_run_t);
 }
 
 /* Add index root attribute to directory */
@@ -190,13 +211,15 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
     index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
     
     /* Walk existing index entries to find the insertion point. The walk
-     * is bounded by index_attr->length, so a freshly created (empty)
-     * index never reads stale bytes that may linger in a reused MFT
-     * slot. `insert` tracks where the new entry goes: for an empty
-     * index it is the first entry position, regardless of whatever
-     * garbage `last->length` holds. */
+     * is bounded by index_attr->length CLAMPED to the MFT slot (both are
+     * disk-controlled), so a hostile image can never push the insert
+     * pointer outside the entry. `insert` tracks where the new entry
+     * goes: for an empty index it is the first entry position. */
     index_entry_t* last = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
+    uint8_t* slot_end = (uint8_t*)parent_dir + MFT_ENTRY_SIZE;
     uint8_t* walk_end = (uint8_t*)index_attr + index_attr->length;
+    if (walk_end > slot_end) walk_end = slot_end;
+    if ((uint8_t*)last > walk_end) return;   /* corrupt index offset */
     uint8_t* insert = (uint8_t*)last;
 
     while ((uint8_t*)last + sizeof(index_entry_t) <= walk_end &&
@@ -212,7 +235,12 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
         insert = (uint8_t*)last + last->length;
         last = (index_entry_t*)insert;
     }
-    
+
+    /* The new entry (+ trailing end marker) must fit inside the MFT slot. */
+    if (insert + sizeof(index_entry_t) + sizeof(attr_header_t) > slot_end) {
+        return;   /* index full or corrupt - refuse rather than overflow */
+    }
+
     /* New entry goes at the current end of the index (this is where the
      * trailing end-of-index marker sat; it gets overwritten and re-added) */
     index_entry_t* idx_entry = (index_entry_t*)insert;
@@ -243,7 +271,8 @@ static void add_dir_entry(mft_header_t* parent_dir, uint64_t child_mft, const ch
         fn->filename[i] = name[i];
     }
     
-    /* Extend the index attribute to cover the new entry */
+    /* Extend the index attribute to cover the new entry, staying inside
+     * the MFT slot (the guard above already verified the fit). */
     index_attr->length += sizeof(index_entry_t);
     
     /* Add a fresh end-of-attributes marker right after the new entry */
@@ -381,19 +410,32 @@ int fs_mount(void) {
 
     if (disk_read((uint32_t)volume_base_lba(), 1, boot_sector) < 0) return -1;
     if (boot_sector->magic != FS_MAGIC) return -1;
-    
-    /* Load MFT */
-    mft_zone = (uint8_t*)kmalloc(boot_sector->mft_size * MFT_ENTRY_SIZE);
+
+    /* Security: every field below is DISK bytes. A hostile boot sector
+     * used to wrap mft_size*MFT_ENTRY_SIZE in 32-bit math (kmalloc(0) ->
+     * immediate heap smash) or allocate absurd bitmaps. Enforce sane
+     * geometry before trusting anything. */
+    if (boot_sector->mft_size == 0 || boot_sector->mft_size > 4096) return -1;
+    if ((uint64_t)boot_sector->mft_size * MFT_ENTRY_SIZE > 64ULL * 1024 * 1024) return -1;
+    if (boot_sector->total_clusters == 0 || boot_sector->total_clusters > 4ULL * 1024 * 1024) return -1;
+    if (boot_sector->data_start >= boot_sector->total_sectors &&
+        boot_sector->total_sectors != 0) return -1;
+
+    /* Load MFT (64-bit sizing; zeroed so garbage never parses as entries) */
+    uint64_t mft_bytes = (uint64_t)boot_sector->mft_size * MFT_ENTRY_SIZE;
+    mft_zone = (uint8_t*)kmalloc((size_t)mft_bytes);
     if (!mft_zone) return -1;
-    
+    for (uint64_t z = 0; z < mft_bytes; z++) mft_zone[z] = 0;
+
     for (uint64_t i = 0; i < boot_sector->mft_size; i++) {
         read_mft_entry(i, mft_zone + i * MFT_ENTRY_SIZE);
     }
-    
+
     /* Load bitmap */
-    cluster_bitmap = (uint8_t*)kmalloc((boot_sector->total_clusters + 7) / 8);
+    cluster_bitmap = (uint8_t*)kmalloc((size_t)((boot_sector->total_clusters + 7) / 8));
     if (!cluster_bitmap) return -1;
-    
+    for (uint64_t z = 0; z < (boot_sector->total_clusters + 7) / 8; z++) cluster_bitmap[z] = 0;
+
     return 0;
 }
 
@@ -553,11 +595,19 @@ int fs_truncate(fs_file_t* file, uint64_t size) {
     if (data_attr && data_attr->non_resident) {
         attr_nonresident_t* nr = (attr_nonresident_t*)((uint8_t*)data_attr + sizeof(attr_header_t));
         data_run_t* runs = (data_run_t*)((uint8_t*)data_attr + nr->run_offset);
-        uint64_t num_runs = nr->last_vcn - nr->start_vcn + 1;
+        /* Security: run count from DISC-controlled vcn fields, bounded by
+         * what the attribute payload can actually hold; absurd single-run
+         * lengths are skipped rather than iterated (DoS/OOB guard). */
+        uint64_t num_runs = nonresident_run_count(data_attr, nr);
+        if (nr->last_vcn >= nr->start_vcn &&
+            num_runs > nr->last_vcn - nr->start_vcn + 1) {
+            num_runs = nr->last_vcn - nr->start_vcn + 1;
+        }
         uint64_t keep_clusters = (size + FS_CLUSTER_SIZE - 1) / FS_CLUSTER_SIZE;
         uint64_t seen = 0;
 
         for (uint64_t i = 0; i < num_runs; i++) {
+            if (runs[i].length > boot_sector->total_clusters) break;
             for (uint64_t j = 0; j < runs[i].length; j++) {
                 if (seen >= keep_clusters) {
                     uint64_t cluster = runs[i].start_cluster + j;
@@ -629,22 +679,28 @@ size_t fs_read(fs_file_t* file, void* buffer, size_t size) {
     if (!data_attr) return 0;
     
     if (data_attr->non_resident) {
-        /* Non-resident: read from data clusters */
+        /* Non-resident: read from data clusters.
+         * Security: nr-> fields are DISK bytes. Bound the run walk by the
+         * attribute's own length so garbage allocated_size/real_size can
+         * never walk runs[] past the MFT slot or drive arbitrary LBAs. */
         attr_nonresident_t* nr = (attr_nonresident_t*)((uint8_t*)data_attr + sizeof(attr_header_t));
         data_run_t* runs = (data_run_t*)((uint8_t*)data_attr + nr->run_offset);
-        
+
         uint64_t clusters_available = nr->allocated_size / FS_CLUSTER_SIZE;
+        uint64_t max_runs = nonresident_run_count(data_attr, nr);
+        if (clusters_available > max_runs) clusters_available = max_runs;
+
         uint64_t start_cluster = file->position / FS_CLUSTER_SIZE;
         uint64_t offset_in_cluster = file->position % FS_CLUSTER_SIZE;
-        
+
         size_t bytes_read = 0;
         uint8_t* buf = (uint8_t*)buffer;
-        
+
         for (uint64_t i = start_cluster; i < clusters_available && bytes_read < size; i++) {
             uint64_t cluster = runs[i].start_cluster;
             uint64_t to_read = FS_CLUSTER_SIZE - offset_in_cluster;
-            
-            if (i == clusters_available - 1) {
+
+            if (i == clusters_available - 1 && nr->real_size > file->position) {
                 /* Last cluster - don't read beyond file size */
                 uint64_t file_remaining = nr->real_size - file->position;
                 if (to_read > file_remaining) {
@@ -673,10 +729,20 @@ size_t fs_read(fs_file_t* file, void* buffer, size_t size) {
         return bytes_read;
         
     } else {
-        /* Resident: read data directly from MFT entry */
-        uint8_t* data = (uint8_t*)data_attr + sizeof(attr_header_t);
+        /* Resident: read data directly from MFT entry.
+         * Security: length is DISK bytes - an underflow here once turned
+         * into a huge data_size and leaked adjacent heap via `cat`. */
+        if (data_attr->length < sizeof(attr_header_t)) return 0;
         uint32_t data_size = data_attr->length - sizeof(attr_header_t);
-        
+        /* The payload cannot extend past the MFT slot. */
+        uint32_t attr_off = (uint32_t)((uint8_t*)data_attr - (uint8_t*)entry);
+        if (attr_off + sizeof(attr_header_t) + data_size > MFT_ENTRY_SIZE) {
+            data_size = MFT_ENTRY_SIZE - attr_off - sizeof(attr_header_t);
+        }
+        if (file->position >= data_size) return 0;
+
+        uint8_t* data = (uint8_t*)data_attr + sizeof(attr_header_t);
+
         size_t to_read = size;
         if (file->position + to_read > data_size) {
             to_read = data_size - file->position;
@@ -756,14 +822,21 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         /* Allocate data runs */
         data_run_t* runs = (data_run_t*)((uint8_t*)data_attr + nr->run_offset);
         uint64_t clusters_allocated = 0;
-        
-        /* Count existing clusters */
+
+        /* Security: existing-run count and the run array capacity come
+         * from the attribute's DISK-controlled length; a hostile value
+         * used to let runs[huge] be written past the MFT slot. */
+        uint64_t max_runs = nonresident_run_count(data_attr, nr);
         if (nr->allocated_size > 0) {
             clusters_allocated = nr->allocated_size / FS_CLUSTER_SIZE;
+            if (clusters_allocated > max_runs) {
+                clusters_allocated = max_runs;
+                nr->allocated_size = clusters_allocated * FS_CLUSTER_SIZE;
+            }
         }
-        
-        /* Allocate additional clusters if needed */
-        while (clusters_allocated < clusters_needed) {
+
+        /* Allocate additional clusters if needed (never beyond capacity) */
+        while (clusters_allocated < clusters_needed && clusters_allocated < max_runs) {
             uint64_t new_cluster = alloc_cluster();
             if (new_cluster == (uint64_t)-1) {
                 /* Out of space */
@@ -842,11 +915,20 @@ size_t fs_write(fs_file_t* file, const void* buffer, size_t size) {
         /* Check if we have space */
         if (file->position + size > MFT_ENTRY_SIZE - entry->used_size) {
             /* --- Convert resident to non-resident --- */
-            size_t existing_size = data_attr->length - sizeof(attr_header_t);
-            
+            /* Security: length is DISK-controlled; clamp the saved
+             * resident payload to both the attribute and the slot so a
+             * hostile length cannot smash this stack buffer. */
+            uint64_t existing_size = (data_attr->length > sizeof(attr_header_t))
+                                   ? (uint64_t)(data_attr->length - sizeof(attr_header_t))
+                                   : 0;
+            uint64_t attr_off = (uint64_t)((uint8_t*)data_attr - (uint8_t*)entry);
+            if (attr_off + sizeof(attr_header_t) + existing_size > MFT_ENTRY_SIZE) {
+                existing_size = MFT_ENTRY_SIZE - attr_off - sizeof(attr_header_t);
+            }
+
             /* Save existing resident data before modifying the attribute */
             uint8_t existing_data[MFT_ENTRY_SIZE];
-            for (size_t i = 0; i < existing_size; i++) {
+            for (uint64_t i = 0; i < existing_size; i++) {
                 existing_data[i] = data[i];
             }
             
@@ -1132,9 +1214,15 @@ int fs_unlink(const char* path) {
     if (data_attr && data_attr->non_resident) {
         attr_nonresident_t* nr = (attr_nonresident_t*)((uint8_t*)data_attr + sizeof(attr_header_t));
         data_run_t* runs = (data_run_t*)((uint8_t*)data_attr + nr->run_offset);
-        uint64_t num_runs = nr->last_vcn - nr->start_vcn + 1;
-        
+        /* Security: same run-count bounding as fs_truncate. */
+        uint64_t num_runs = nonresident_run_count(data_attr, nr);
+        if (nr->last_vcn >= nr->start_vcn &&
+            num_runs > nr->last_vcn - nr->start_vcn + 1) {
+            num_runs = nr->last_vcn - nr->start_vcn + 1;
+        }
+
         for (uint64_t i = 0; i < num_runs; i++) {
+            if (runs[i].length > boot_sector->total_clusters) break;
             for (uint64_t j = 0; j < runs[i].length; j++) {
                 uint64_t cluster = runs[i].start_cluster + j;
                 uint64_t byte = cluster / 8;
@@ -1194,13 +1282,25 @@ static void remove_index_entry(mft_header_t* dir, uint64_t child_mft) {
     index_root_t* ir = (index_root_t*)((uint8_t*)index_attr + sizeof(attr_header_t));
     index_entry_t* e = (index_entry_t*)((uint8_t*)ir + sizeof(index_root_t));
     uint8_t* end = (uint8_t*)index_attr + index_attr->length;
+    uint8_t* slot_end = (uint8_t*)dir + MFT_ENTRY_SIZE;
+    if (end > slot_end) end = slot_end;   /* hostile length clamp */
     index_entry_t* prev = 0;
 
     while ((uint8_t*)e + sizeof(index_entry_t) <= end) {
         if (e->mft_ref == child_mft) {
-            uint32_t entry_len = e->length < sizeof(index_entry_t) ? sizeof(index_entry_t) : e->length;
+            /* Security: e->length is DISK bytes. A bad length must never
+             * drive the compaction copy (a negative ptrdiff once wrapped
+             * to ~4GB of OOB write here). If the length cannot be
+             * trusted, truncate the index at this entry instead. */
+            if (e->length < sizeof(index_entry_t) ||
+                (uint8_t*)e + e->length > end) {
+                index_attr->length = (uint32_t)((uint8_t*)e - (uint8_t*)index_attr);
+                if (prev) prev->flags |= 0x01;
+                return;
+            }
+            uint32_t entry_len = e->length;
             uint8_t* next = (uint8_t*)e + entry_len;
-            uint32_t trailing = (uint32_t)(end - next);
+            uint32_t trailing = (uint32_t)(end - next);   /* provably >= 0 */
             for (uint32_t i = 0; i < trailing; i++) {
                 ((uint8_t*)e)[i] = next[i];
             }
@@ -1390,9 +1490,14 @@ int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, 
     int count = 0;
     uint8_t* ptr = (uint8_t*)entries;
     uint8_t* end = (uint8_t*)index_attr + index_attr->length;
-    
-    while (ptr < end) {
+    uint8_t* slot_end = (uint8_t*)dir_entry + MFT_ENTRY_SIZE;
+    if (end > slot_end) end = slot_end;   /* hostile length clamp */
+
+    while (ptr + sizeof(index_entry_t) <= end) {
         index_entry_t* entry = (index_entry_t*)ptr;
+
+        /* A zero/garbage length must not loop forever or walk past end. */
+        if (entry->length < sizeof(index_entry_t)) break;
         
         /* Check for end marker */
         if (entry->flags & 0x01) {
@@ -1438,6 +1543,6 @@ int fs_readdir(const char* path, void (*callback)(const char* name, int is_dir, 
         
         ptr += entry->length;
     }
-    
+
     return count;
 }
