@@ -57,12 +57,23 @@ static char list_cur_dir[256];  /* set by cmd_list so the callback can
 
 static void list_callback(const char* name, int is_dir, uint32_t size) {
     char full[256];
+    /* Bounded join: cur_dir and name lengths are attacker-influenced. */
     if (list_cur_dir[0] && k_strcmp(list_cur_dir, "/") != 0) {
         int n = k_strlen(list_cur_dir);
+        int nn = k_strlen(name);
+        if (n + 1 + nn + 1 > (int)sizeof(full)) {
+            terminal_writestring("  (name too long)\n");
+            return;
+        }
         k_strcpy(full, list_cur_dir);
         full[n] = '/';
         k_strcpy(full + n + 1, name);
     } else {
+        int nn = k_strlen(name);
+        if (nn + 2 > (int)sizeof(full)) {
+            terminal_writestring("  (name too long)\n");
+            return;
+        }
         k_strcpy(full, "/");
         k_strcpy(full + 1, name);
     }
@@ -772,15 +783,25 @@ static const char* path_basename(const char* p) {
     return base;
 }
 
-static void path_join(char* out, const char* dir, const char* name) {
-    if (k_strcmp(dir, "/") == 0) {
+static void path_join(char* out, int cap, const char* dir, const char* name) {
+    /* Security-bounded join: dir and name are attacker-length-limited
+     * only by their own buffers, so the result must be capped. On
+     * overflow the output is an empty string. */
+    int dn = k_strlen(dir);
+    int nn = k_strlen(name);
+    int need = dn + 1 + nn + 1;
+    if (dn == 1 && dir[0] == '/') need = nn + 2;
+    if (need > cap) {
+        out[0] = 0;
+        return;
+    }
+    if (dn == 1 && dir[0] == '/') {
         k_strcpy(out, "/");
         k_strcpy(out + 1, name);
     } else {
-        int n = k_strlen(dir);
         k_strcpy(out, dir);
-        out[n] = '/';
-        k_strcpy(out + n + 1, name);
+        out[dn] = '/';
+        k_strcpy(out + dn + 1, name);
     }
 }
 
@@ -788,8 +809,8 @@ static void copy_dir_callback(const char* name, int is_dir, uint32_t size) {
     (void)size;
     char src_child[256];
     char dst_child[256];
-    path_join(src_child, copy_dir_src_cur, name);
-    path_join(dst_child, copy_dir_dst_cur, name);
+    path_join(src_child, (int)sizeof(src_child), copy_dir_src_cur, name);
+    path_join(dst_child, (int)sizeof(dst_child), copy_dir_dst_cur, name);
 
     if (is_dir) {
         int exists = fs_is_directory(dst_child);
@@ -852,7 +873,7 @@ static void cmd_copy(const char* src, const char* dst) {
     if (fs_is_directory(src_path) == 1) {
         char dst_root[256];
         if (fs_is_directory(dst_path) == 1) {
-            path_join(dst_root, dst_path, path_basename(src_path));
+            path_join(dst_root, (int)sizeof(dst_root), dst_path, path_basename(src_path));
         } else {
             k_strcpy(dst_root, dst_path);
         }
@@ -1027,17 +1048,10 @@ static void find_callback(const char* name, int is_dir, uint32_t size) {
         find_match_count++;
     }
     if (is_dir) {
-        /* Descend: join current dir + name, then recurse. */
+        /* Descend: join current dir + name, then recurse (bounded). */
         char child[256];
-        if (k_strcmp(find_current_dir, "/") == 0) {
-            k_strcpy(child, "/");
-            k_strcpy(child + 1, name);
-        } else {
-            int base = k_strlen(find_current_dir);
-            k_strcpy(child, find_current_dir);
-            child[base] = '/';
-            k_strcpy(child + base + 1, name);
-        }
+        path_join(child, (int)sizeof(child), find_current_dir, name);
+        if (!child[0]) return;   /* overflow - skip this branch */
         find_walk(child, find_pattern, find_depth - 1);
     }
 }
@@ -1628,23 +1642,31 @@ static void ns_arg_error(int rc) {
     }
 }
 
-static void dispatch(char* cmd, char* arg1, char* arg2) {
+static void dispatch(char* cmd, char* arg1, char* arg2, int cap1, int cap2) {
     /* Namespace-aware arguments: translate 0/... paths into filesystem
      * paths before handlers see them (docs/NAMESPACE.md §12). Legacy
      * /-rooted arguments pass through untouched; `ns` consumes raw
-     * namespace paths natively. Translated output is never longer than
-     * the input, so in-place replacement is safe. */
+     * namespace paths natively.
+     *
+     * Security: alias expansion GROWS paths (0/hmr -> 0/hardware/
+     * memory/ram), so output can be longer than input. The caller's true
+     * remaining buffer capacity is passed in and enforced here; the old
+     * "never longer than input" assumption was exploitable. */
     if (!cmd_equals(cmd, "ns")) {
         char tbuf[256];
-        int rc = ns_to_fs_path(arg1 ? arg1 : "", tbuf, sizeof(tbuf));
-        if (rc == NS_FS_OK) {
+        int rc = ns_to_fs_path(arg1 ? arg1 : "", tbuf,
+                               (cap1 < (int)sizeof(tbuf)) ? (size_t)cap1
+                                                          : sizeof(tbuf));
+        if (rc == NS_FS_OK && cap1 > 0) {
             k_strcpy(arg1, tbuf);
         } else if (rc < 0) {
             ns_arg_error(rc);
             return;
         }
-        rc = ns_to_fs_path(arg2 ? arg2 : "", tbuf, sizeof(tbuf));
-        if (rc == NS_FS_OK) {
+        rc = ns_to_fs_path(arg2 ? arg2 : "", tbuf,
+                           (cap2 < (int)sizeof(tbuf)) ? (size_t)cap2
+                                                      : sizeof(tbuf));
+        if (rc == NS_FS_OK && cap2 > 0) {
             k_strcpy(arg2, tbuf);
         } else if (rc < 0) {
             ns_arg_error(rc);
@@ -1884,7 +1906,7 @@ static void dispatch(char* cmd, char* arg1, char* arg2) {
     }
 }
 
-static void process_command(char* cmd) {
+static void process_command(char* cmd, int cap) {
     cmd = k_trim(cmd);
     if (k_strlen(cmd) == 0) return;
 
@@ -1918,7 +1940,7 @@ static void process_command(char* cmd) {
             /* Run the command with output captured (screen + serial silent). */
             char cap[8192];
             terminal_capture_begin(cap, sizeof(cap));
-            process_command(cmd);
+            process_command(cmd, (int)sizeof(cmd));
             size_t captured = terminal_capture_end();
 
             char path[256];
@@ -1961,7 +1983,7 @@ static void process_command(char* cmd) {
     char nl_arg1[256];
     char nl_arg2[256];
     if (nl_parse(cmd, nl_cmd, nl_arg1, nl_arg2) == 0) {
-        dispatch(nl_cmd, nl_arg1, nl_arg2);
+        dispatch(nl_cmd, nl_arg1, nl_arg2, (int)sizeof(nl_arg1), (int)sizeof(nl_arg2));
         return;
     }
 
@@ -1981,7 +2003,12 @@ static void process_command(char* cmd) {
         while (*arg2 == ' ') arg2++;
     }
 
-    dispatch(cmd, arg1, arg2);
+    /* Token-path args point into the caller's line buffer: pass the
+     * true remaining capacity so alias-expanding translations cannot
+     * run past it. */
+    dispatch(cmd, arg1, arg2,
+             cap - (int)(arg1 - cmd),
+             cap - (int)(arg2 - cmd));
 }
 
 void shell_run(void) {
@@ -2053,6 +2080,6 @@ void shell_run(void) {
         }
 
         history_add(cmd_buffer);
-        process_command(cmd_buffer);
+        process_command(cmd_buffer, MAX_CMD_LEN);
     }
 }

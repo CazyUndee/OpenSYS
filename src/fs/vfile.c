@@ -21,6 +21,7 @@
 #include "process.h"
 #include "kstring.h"
 #include "vga.h"
+#include "vfs.h"
 #include "version.h"
 #include "pci.h"
 #include "kheap.h"
@@ -590,18 +591,32 @@ static int gen_self_fdinfo(char* buf, size_t max) {
 
 /* 0/system/self/fd/N — reads through the open descriptor N */
 static int gen_self_fd_path(char* buf, size_t max, const char* path) {
-    /* Path is 0/system/self/fd/<number> */
+    /* Path is 0/system/self/fd/<number>.
+     * Security: clamp the parsed descriptor number to the fd-table range
+     * (unbounded accumulation used to overflow int), and refuse chains
+     * (fd/N resolving to another self/fd path) which would recurse and
+     * corrupt the shared scratch buffer. */
     const char* num = path + k_strlen("/0/system/self/fd/");
-    int fd = 0;
-    int started = 0;
+    long fd = 0;
+    int digits = 0;
     while (*num >= '0' && *num <= '9') {
         fd = fd * 10 + (*num - '0');
+        if (fd > 9 * VFS_MAX_FDS) return -1;   /* beyond any valid fd */
         num++;
-        started = 1;
+        digits++;
     }
-    if (!started || *num != 0) return -1;
+    if (!digits || *num != 0) return -1;
+    if (fd >= VFS_MAX_FDS) return -1;
 
-    return vfs_read(fd, buf, max);
+    /* Security: an fd can hold a node keyed as another self/fd path
+     * (they are openable through the adapter), so reading one could
+     * recurse without limit. Cap the chain depth instead. */
+    static int self_fd_depth = 0;
+    if (self_fd_depth >= 2) return -1;
+    self_fd_depth++;
+    int r = vfs_read((int)fd, buf, max);
+    self_fd_depth--;
+    return r;
 }
 
 /* ================================================================

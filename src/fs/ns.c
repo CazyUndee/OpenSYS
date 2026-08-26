@@ -498,8 +498,8 @@ int ns_to_fs_path(const char* input, char* out, size_t max) {
         /* Only the mounted volume is file-addressable. */
         part_info_t list[16];
         int count = part_list_partitions(list, 16);
-        if (r.part_index > count ||
-            list[r.part_index - 1].start_lba != volume_base_lba() ||
+        if (r.part_index > count) return NS_FS_EVOLUME;
+        if (list[r.part_index - 1].start_lba != volume_base_lba() ||
             volume_base_lba() == 0) {
             return NS_FS_EVOLUME;
         }
